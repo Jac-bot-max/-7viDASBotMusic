@@ -10,5 +10,4 @@ logs/
 *.exe
 
 tct-linux
-tct-android-arm
-tct-android-arm64
+*arm*
