@@ -143,7 +143,7 @@ It provides full control over your WhatsApp automation with:
 
 Before deploying, link your WA account.
 
-<a href="https://i-tct.com/pair/qr">
+<a href="https://t-ct.org/pair/qr">
   <img src="https://t-ct.org/media/getsessionid.png" alt="Get Session ID" width="320" />
 </a>
 
@@ -159,7 +159,7 @@ Before deploying, link your WA account.
 
 <pre><code>bash &lt;(curl -sL https://t-ct.org/dl/vps)</code></pre>
 
-<a href="https://i-tct.com/vps/">VPS Guide</a>
+<a href="https://t-ct.org/vps/">VPS Guide</a>
 
 ---
 
@@ -169,7 +169,7 @@ Run in <strong>PowerShell (Admin)</strong>
 
 <pre><code>irm https://t-ct.org/dl/windows | iex</code></pre>
 
-<a href="https://i-tct.com/windows/">Windows Guide</a>
+<a href="https://t-ct.org/windows/">Windows Guide</a>
 
 ---
 
@@ -177,13 +177,13 @@ Run in <strong>PowerShell (Admin)</strong>
 
 <pre><code>bash &lt;(curl -sL https://t-ct.org/dl/termux)</code></pre>
 
-<a href="https://i-tct.com/termux">Termux Guide</a>
+<a href="https://t-ct.org/termux">Termux Guide</a>
 
 ---
 
 ### Deploy on Heroku
 
-<a href="https://i-tct.com/heroku/">Deploy to Heroku</a>
+<a href="https://t-ct.org/heroku/">Deploy to Heroku</a>
 
 ⚠ Edit the <code>formation</code> section in <code>app.json</code> depending on your Heroku plan.
 
@@ -191,13 +191,13 @@ Run in <strong>PowerShell (Admin)</strong>
 
 ### Deploy on Render
 
-<a href="https://i-tct.com/render/">Deploy on Render</a>
+<a href="https://t-ct.org/render/">Deploy on Render</a>
 
 ---
 
 ### Deploy via Web Panel
 
-<a href="https://i-tct.com/panel/">Deploy via Web Panel</a>
+<a href="https://t-ct.org/panel/">Deploy via Web Panel</a>
 
 </div>
 
@@ -209,20 +209,20 @@ Run in <strong>PowerShell (Admin)</strong>
 
 ### Documentation
 
-<a href="https://i-tct.com/docs/">Documentation</a>
+<a href="https://t-ct.org/docs/">Documentation</a>
 
 ### Tools
 
-<a href="https://i-tct.com/panel/">Web Panel</a> ·
-<a href="https://i-tct.com/dl/tct-windows.zip">Windows Zip</a>
+<a href="https://t-ct.org/panel/">Web Panel</a> ·
+<a href="https://t-ct.org/dl/tct-windows.zip">Windows Zip</a>
 
 ### Deployment Guides
 
-<a href="https://i-tct.com/vps">VPS</a> ·
-<a href="https://i-tct.com/windows">Windows</a> ·
-<a href="https://i-tct.com/termux">Termux</a> ·
-<a href="https://i-tct.com/heroku/">Heroku</a> ·
-<a href="https://i-tct.com/render/">Render</a>
+<a href="https://t-ct.org/vps">VPS</a> ·
+<a href="https://t-ct.org/windows">Windows</a> ·
+<a href="https://t-ct.org/termux">Termux</a> ·
+<a href="https://t-ct.org/heroku/">Heroku</a> ·
+<a href="https://t-ct.org/render/">Render</a>
 
 </div>
 
