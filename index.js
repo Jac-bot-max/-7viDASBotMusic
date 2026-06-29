@@ -1,72 +1,84 @@
- const { default: makeWASocket, useMultiFileAuthState, Browsers, delay, DisconnectReason } = require('@whiskeysockets/baileys');
+ const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const express = require('express');
-const bodyParser = require('body-parser');
-const fs = require('fs');
+const yts = require('yt-search');
 const app = express();
-const port = process.env.PORT || 3000;
 
-app.use(bodyParser.urlencoded({ extended: true }));
+// Mantém o bot vivo
+app.get('/', (req, res) => res.send('Bot Jackson Beatz está Vivo! 🚀'));
+app.listen(process.env.PORT || 3000, () => console.log('Servidor Web Ativo'));
 
-app.get('/', (req, res) => {
-    res.send(`
-        <body style="font-family:sans-serif; text-align:center; padding-top:50px; background-color:#f0f2f5;">
-            <h2>Jackson Beatz - Conexão Direta</h2>
-            <p>Digite seu número (Ex: 258848786486)</p>
-            <form action="/getcode" method="POST">
-                <input type="text" name="number" placeholder="258..." required style="padding:15px; border-radius:10px; border:1px solid #ccc; width:80%;">
-                <br><br>
-                <button type="submit" style="padding:15px 30px; background:#25d366; color:white; border:none; border-radius:10px; font-weight:bold;">GERAR CÓDIGO AGORA</button>
-            </form>
-        </body>
-    `);
-});
+const dicas = [
+    "🎧 *Dica:* Use compressão paralela no seu Kick para dar peso!",
+    "🎹 *Dica:* Varie a 'velocity' das notas no piano para soar real.",
+    "🎙️ *Dica:* Ajuste os volumes antes de colocar plugins.",
+    "🔥 *Dica:* Use Saturação suave para dar brilho à voz."
+];
 
-async function startBot(numberToPair, res) {
+async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('session_data');
     
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.macOS("Chrome"),
-        // CONFIGURAÇÕES DE VELOCIDADE
-        connectTimeoutMs: 120000, 
-        defaultQueryTimeoutMs: 0,
-        keepAliveIntervalMs: 10000,
-        markOnlineOnConnect: true
+        browser: Browsers.macOS('Desktop'),
+        printQRInTerminal: false,
+        // Configurações para o Render não desconectar
+        connectTimeoutMs: 60000,
+        keepAliveIntervalMs: 30000
     });
 
-    if (!sock.authState.creds.registered && numberToPair) {
-        await delay(3000); // Espera 3 seg apenas
-        try {
-            const code = await sock.requestPairingCode(numberToPair);
-            res.send(`
-                <body style="font-family:sans-serif; text-align:center; padding-top:50px;">
-                    <h1 style="font-size:50px;">CÓDIGO: <span style="color:#25d366;">${code}</span></h1>
-                    <p style="font-size:20px;">1. COPIE ESTE CÓDIGO.</p>
-                    <p style="font-size:20px;">2. CLIQUE NA NOTIFICAÇÃO QUE ACABOU DE CHEGAR.</p>
-                    <p style="font-size:20px;">3. COLE E AGUARDE NESSA TELA DO WHATSAPP.</p>
-                    <br>
-                    <p>Mantenha esta aba do navegador aberta até conectar!</p>
-                </body>
-            `);
-        } catch (e) { res.send("Servidor ocupado. Tente novamente em 30 segundos."); }
-    }
-
     sock.ev.on('creds.update', saveCreds);
+
     sock.ev.on('connection.update', (u) => {
-        const { connection, lastDisconnect } = u;
-        if (connection === 'open') console.log('✅ BOT JACKSON BEATZ ONLINE!');
+        const { connection, lastDisconnect, qr } = u;
+        
+        // Se precisar de novo código, ele avisa nos Logs
+        if (qr) console.log("⚠️ A SESSÃO EXPIROU. REFAÇA O PAREAMENTO NO NAVEGADOR!");
+
+        if (connection === 'open') {
+            console.log('✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅');
+            console.log('✅ JACKSON BEATZ BOT ESTÁ ONLINE!');
+            console.log('✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅');
+        }
+
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             if (shouldReconnect) startBot();
         }
     });
+
+    sock.ev.on('messages.upsert', async (m) => {
+        const msg = m.messages[0];
+        if (!msg.message || msg.key.fromMe) return;
+
+        const chat = msg.key.remoteJid;
+        const texto = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase().trim();
+
+        console.log("Recebi: " + texto);
+
+        if (texto === '!menu') {
+            await sock.sendMessage(chat, { text: "🤖 *BOT JACKSON BEATZ*\n\n!foto [nome] - Capa de música\n!dica - Dica de Produção\n!ping - Status" });
+        }
+
+        if (texto === '!dica') {
+            const d = dicas[Math.floor(Math.random() * dicas.length)];
+            await sock.sendMessage(chat, { text: `🔥 *DICA:* ${d}` });
+        }
+
+        if (texto === '!ping') {
+            await sock.sendMessage(chat, { text: "🏓 *Pong!* Estou ativo na nuvem!" });
+        }
+
+        if (texto.startsWith('!foto')) {
+            const busca = texto.replace('!foto', '').trim();
+            if (!busca) return sock.sendMessage(chat, { text: 'Diga o nome da música!' });
+            const r = await yts(busca);
+            const vid = r.videos[0];
+            if (vid) {
+                await sock.sendMessage(chat, { image: { url: vid.thumbnail }, caption: `🎬 *${vid.title}*\n⏱️ ${vid.timestamp}` });
+            }
+        }
+    });
 }
-
-app.post('/getcode', (req, res) => {
-    const num = req.body.number.replace(/\D/g, '');
-    startBot(num, res);
-});
-
-app.listen(port, () => console.log(`Servidor ativo na porta ${port}`));
+startBot();
