@@ -2,24 +2,27 @@ const { default: makeWASocket, useMultiFileAuthState, Browsers, delay, Disconnec
 const pino = require('pino');
 const express = require('express');
 const bodyParser = require('body-parser');
+const yts = require('yt-search');
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(bodyParser.urlencoded({ extended: true }));
 
+// --- MANTÉM O BOT ACORDADO E GERA CÓDIGO SE PRECISAR ---
 app.get('/', (req, res) => {
-    res.send(`
-        <body style="font-family:sans-serif; text-align:center; background:#111; color:white; padding-top:50px;">
-            <h1>Link Jackson Beatz</h1>
-            <p>Digite o número para receber a NOTIFICAÇÃO</p>
-            <form action="/getcode" method="POST">
-                <input type="text" name="number" placeholder="25884..." required style="padding:15px; border-radius:10px; width:70%;">
-                <br><br>
-                <button type="submit" style="padding:15px 30px; background:#25d366; color:white; border:none; border-radius:10px; font-weight:bold;">SOLICITAR NOTIFICAÇÃO</button>
-            </form>
-        </body>
-    `);
+    res.send(`<body style="font-family:sans-serif;text-align:center;background:#111;color:white;padding-top:50px;">
+        <h1>🤖 Jackson Beatz Bot Ativo</h1>
+        <p>O bot está rodando na nuvem 24h.</p>
+    </body>`);
 });
+
+const dicas = [
+    "🎧 *Dica:* Use um filtro High-Pass em tudo que não for Bumbo ou Baixo para limpar a mixagem.",
+    "🎹 *Dica:* No FL Studio, use 'Alt+R' para humanizar o volume das notas do seu piano.",
+    "🎙️ *Dica:* Grave vozes com um compressor leve na entrada para capturar mais detalhes.",
+    "🔥 *Dica:* Use Soft Clipper no Master para ganhar volume sem distorcer o som.",
+    "🎚️ *Dica:* Ajuste os ganhos (Gain Staging) antes de começar a colocar qualquer plugin."
+];
 
 async function startBot(numberToPair, res) {
     const { state, saveCreds } = await useMultiFileAuthState('session_data');
@@ -27,44 +30,84 @@ async function startBot(numberToPair, res) {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        // ESTA LINHA É O SEGREDO: Simular Android para forçar a notificação
         browser: ["Android", "Chrome", "20.0.04"],
         syncFullHistory: false,
-        connectTimeoutMs: 120000,
-        defaultQueryTimeoutMs: 0
+        markOnlineOnConnect: true
     });
 
-    if (!sock.authState.creds.registered && numberToPair) {
-        // Espera 10 segundos para o servidor do Render estabilizar o IP
-        await delay(10000); 
-        try {
-            const code = await sock.requestPairingCode(numberToPair);
-            res.send(`
-                <body style="font-family:sans-serif; text-align:center; background:#111; color:white; padding-top:50px;">
-                    <h1>CÓDIGO: <span style="color:#25d366;">${code}</span></h1>
-                    <p>A NOTIFICAÇÃO ACABOU DE CHEGAR!</p>
-                    <p>Clique nela e cole o código acima.</p>
-                    <p>Mantenha esta página aberta até conectar.</p>
-                </body>
-            `);
-        } catch (e) { res.send("O WhatsApp bloqueou o pedido. Tente novamente em 2 minutos."); }
-    }
-
     sock.ev.on('creds.update', saveCreds);
+
+    // --- MENSAGEM DE BOAS-VINDAS NO GRUPO ---
+    sock.ev.on('group-participants.update', async (anu) => {
+        if (anu.action === 'add') {
+            const user = anu.participants[0];
+            await sock.sendMessage(anu.id, { 
+                text: `Olá @${user.split('@')[0]}, bem-vindo ao grupo de Produção Musical do Jackson Beatz! 🎹🔥\n\nDigite *!menu* para ver meus comandos.`,
+                mentions: [user]
+            });
+        }
+    });
+
     sock.ev.on('connection.update', (u) => {
-        if (u.connection === 'open') console.log('✅ BOT JACKSON BEATZ ONLINE!');
-        if (u.connection === 'close') startBot();
+        const { connection, lastDisconnect } = u;
+        if (connection === 'open') console.log('✅ BOT JACKSON BEATZ ONLINE!');
+        if (connection === 'close') {
+            const restart = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            if (restart) startBot();
+        }
     });
 
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
-        if (msg.message.conversation === '!ping') {
-            await sock.sendMessage(msg.key.remoteJid, { text: 'Estou online e rápido! 🚀' });
+
+        const chat = msg.key.remoteJid;
+        const isGroup = chat.endsWith('@g.us');
+        const texto = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase().trim();
+
+        // COMANDO !MENU
+        if (texto === '!menu') {
+            const menu = `🤖 *JACKSON BEATZ BOT*\n\n` +
+                         `👉 *!dica* - Dica aleatória de produção.\n` +
+                         `👉 *!foto [nome]* - Capa e info de música.\n` +
+                         `👉 *!ping* - Testar velocidade.\n\n` +
+                         `🚫 *Anti-Link:* Ativado automático.\n` +
+                         `🎧 _Produzindo o futuro._`;
+            await sock.sendMessage(chat, { text: menu }, { quoted: msg });
+        }
+
+        // COMANDO !DICA
+        if (texto === '!dica') {
+            const d = dicas[Math.floor(Math.random() * dicas.length)];
+            await sock.sendMessage(chat, { text: `🔥 *DICA DE PRODUÇÃO:*\n\n${d}` }, { quoted: msg });
+        }
+
+        // COMANDO !FOTO (BUSCA YOUTUBE)
+        if (texto.startsWith('!foto')) {
+            const busca = texto.replace('!foto', '').trim();
+            if (!busca) return sock.sendMessage(chat, { text: 'Diga o nome da música!' });
+            const r = await yts(busca);
+            const vid = r.videos[0];
+            if (vid) {
+                const info = `🎬 *YOUTUBE INFO*\n\n📌 *Título:* ${vid.title}\n⏱️ *Duração:* ${vid.timestamp}\n👤 *Canal:* ${vid.author.name}\n🔗 *Link:* ${vid.url}`;
+                await sock.sendMessage(chat, { image: { url: vid.thumbnail }, caption: info }, { quoted: msg });
+            }
+        }
+
+        // COMANDO !PING
+        if (texto === '!ping') {
+            await sock.sendMessage(chat, { text: '🏓 *Pong!* Bot Jackson Beatz ativo na nuvem!' });
+        }
+
+        // --- ANTI-LINK (APAGA LINKS DE OUTROS GRUPOS) ---
+        if (isGroup && texto.includes('chat.whatsapp.com/')) {
+            await sock.sendMessage(chat, { delete: msg.key });
+            await sock.sendMessage(chat, { text: '🚫 *Links não são permitidos neste grupo!*' });
         }
     });
 }
 
+// ROTA PARA GERAR CÓDIGO (Caso a sessão caia um dia)
 app.post('/getcode', (req, res) => {
     const num = req.body.number.replace(/\D/g, '');
     startBot(num, res);
