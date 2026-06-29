@@ -1,4 +1,4 @@
-const { default: makeWASocket, useMultiFileAuthState, Browsers, DisconnectReason, delay } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, Browsers, delay, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const express = require('express');
 const bodyParser = require('body-parser');
@@ -7,15 +7,15 @@ const port = process.env.PORT || 3000;
 
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Página para manter o Render acordado e gerar código se precisar
 app.get('/', (req, res) => {
     res.send(`
         <body style="font-family:sans-serif; text-align:center; background:#111; color:white; padding-top:50px;">
-            <h1>🤖 Jackson Beatz Bot</h1>
-            <p>Status: Servidor Ativo</p>
+            <h1>Link Jackson Beatz</h1>
+            <p>Digite o número para receber a NOTIFICAÇÃO</p>
             <form action="/getcode" method="POST">
-                <input type="text" name="number" placeholder="25884..." required style="padding:10px; border-radius:5px;">
-                <button type="submit" style="padding:10px; background:green; color:white; border:none; border-radius:5px;">Gerar Novo Código</button>
+                <input type="text" name="number" placeholder="25884..." required style="padding:15px; border-radius:10px; width:70%;">
+                <br><br>
+                <button type="submit" style="padding:15px 30px; background:#25d366; color:white; border:none; border-radius:10px; font-weight:bold;">SOLICITAR NOTIFICAÇÃO</button>
             </form>
         </body>
     `);
@@ -27,46 +27,40 @@ async function startBot(numberToPair, res) {
     const sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        browser: Browsers.macOS("Desktop"),
-        // --- CONFIGURAÇÕES PARA NÃO TRAVAR O RENDER ---
-        syncFullHistory: false,            // Não baixa conversas antigas
-        shouldSyncHistoryMessage: () => false, // Bloqueia sincronização pesada
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 0,
+        // ESTA LINHA É O SEGREDO: Simular Android para forçar a notificação
+        browser: ["Android", "Chrome", "20.0.04"],
+        syncFullHistory: false,
+        connectTimeoutMs: 120000,
+        defaultQueryTimeoutMs: 0
     });
 
-    sock.ev.on('creds.update', saveCreds);
-
     if (!sock.authState.creds.registered && numberToPair) {
-        await delay(5000);
+        // Espera 10 segundos para o servidor do Render estabilizar o IP
+        await delay(10000); 
         try {
             const code = await sock.requestPairingCode(numberToPair);
-            if (res) res.send(`<h2>CÓDIGO: <span style="color:green;">${code}</span></h2><p>Cole no WhatsApp e aguarde.</p>`);
-        } catch (e) { if (res) res.send("Erro ao gerar. Tente novamente."); }
+            res.send(`
+                <body style="font-family:sans-serif; text-align:center; background:#111; color:white; padding-top:50px;">
+                    <h1>CÓDIGO: <span style="color:#25d366;">${code}</span></h1>
+                    <p>A NOTIFICAÇÃO ACABOU DE CHEGAR!</p>
+                    <p>Clique nela e cole o código acima.</p>
+                    <p>Mantenha esta página aberta até conectar.</p>
+                </body>
+            `);
+        } catch (e) { res.send("O WhatsApp bloqueou o pedido. Tente novamente em 2 minutos."); }
     }
 
+    sock.ev.on('creds.update', saveCreds);
     sock.ev.on('connection.update', (u) => {
-        const { connection, lastDisconnect } = u;
-        if (connection === 'open') {
-            console.log('✅ BOT JACKSON BEATZ ONLINE E ESTÁVEL!');
-        }
-        if (connection === 'close') {
-            const reason = lastDisconnect?.error?.output?.statusCode;
-            console.log('Conexão fechada. Razão:', reason);
-            // Se o erro for de rede, espera 5 segundos antes de tentar de novo para evitar o loop
-            if (reason !== DisconnectReason.loggedOut) {
-                setTimeout(() => startBot(), 5000);
-            }
-        }
+        if (u.connection === 'open') console.log('✅ BOT JACKSON BEATZ ONLINE!');
+        if (u.connection === 'close') startBot();
     });
 
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
-        const texto = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
-        
-        if (texto === '!ping') {
-            await sock.sendMessage(msg.key.remoteJid, { text: '🏓 *Pong!* Bot Jackson Beatz estável na nuvem!' });
+        if (msg.message.conversation === '!ping') {
+            await sock.sendMessage(msg.key.remoteJid, { text: 'Estou online e rápido! 🚀' });
         }
     });
 }
@@ -76,5 +70,5 @@ app.post('/getcode', (req, res) => {
     startBot(num, res);
 });
 
-app.listen(port, () => console.log(`Servidor na porta ${port}`));
+app.listen(port, () => console.log(`Rodando na porta ${port}`));
 startBot();
