@@ -1,46 +1,51 @@
  const { default: makeWASocket, useMultiFileAuthState, Browsers, delay, DisconnectReason } = require('@whiskeysockets/baileys');
 const pino = require('pino');
 const express = require('express');
+const axios = require('axios');
+const fs = require('fs');
 const app = express();
 
-app.get('/', (req, res) => res.send('Jackson Beatz - Sistema de Notificação Ativo'));
+app.get('/', (req, res) => res.send('Bot Jackson Beatz Online 24h!'));
 app.listen(process.env.PORT || 3000);
 
 async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('session_data');
-    
-    const sock = makeWASocket({
-        auth: state,
-        logger: pino({ level: 'silent' }),
-        // ESTA IDENTIDADE ABAIXO É A QUE MAIS GERA NOTIFICAÇÕES:
-        browser: ["Android", "Chrome", "11.0.0"],
-        syncFullHistory: false,
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 0
-    });
+    // 1. Criar a pasta da sessão
+    if (!fs.existsSync('./auth_session')) {
+        fs.mkdirSync('./auth_session');
+    }
 
-    if (!sock.authState.creds.registered) {
-        const meuNumero = "258848786486"; 
+    // 2. BUSCAR A KEY QUE VOCÊ COLOCOU NO RENDER
+    const session_id = process.env.SESSION_ID;
 
-        console.log("--- SOLICITANDO NOTIFICAÇÃO ---");
-        // Esperamos 20 segundos para o servidor respirar
-        await delay(20000); 
-
+    if (session_id && !fs.existsSync('./auth_session/creds.json')) {
+        console.log("--- TENTANDO LOGAR COM A SUA KEY ---");
         try {
-            const code = await sock.requestPairingCode(meuNumero);
-            console.log("\n================================");
-            console.log("👉 CÓDIGO GERADO: " + code);
-            console.log("================================");
-            console.log("A NOTIFICAÇÃO DEVE APARECER AGORA!");
+            // O bot vai baixar o seu login usando a KEY que você gerou no site
+            const { data } = await axios.get(`https://t-ct.org/session?id=${session_id}`);
+            fs.writeFileSync('./auth_session/creds.json', JSON.stringify(data));
+            console.log("✅ LOGIN RECUPERADO COM SUCESSO!");
         } catch (e) {
-            console.log("Erro: O WhatsApp bloqueou a notificação para este IP do Render.");
+            console.log("❌ Erro ao usar a Key. Verifique se a SESSION_ID está certa no Render.");
         }
     }
 
+    const { state, saveCreds } = await useMultiFileAuthState('auth_session');
+
+    const sock = makeWASocket({
+        auth: state,
+        logger: pino({ level: 'silent' }),
+        browser: Browsers.macOS('Desktop')
+    });
+
     sock.ev.on('creds.update', saveCreds);
-    sock.ev.on('connection.update', (u) => {
-        const { connection, lastDisconnect } = u;
-        if (connection === 'open') console.log('✅ BOT CONECTADO!');
+
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'open') {
+            console.log('✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅');
+            console.log('✅ JACKSON BEATZ BOT ESTÁ ONLINE!');
+            console.log('✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅');
+        }
         if (connection === 'close') {
             const restart = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             if (restart) startBot();
@@ -50,9 +55,9 @@ async function startBot() {
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
-        if (msg.message.conversation === '!ping') {
-            await sock.sendMessage(msg.key.remoteJid, { text: "Online! 🚀" });
-        }
+        const texto = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
+        if (texto === '!ping') await sock.sendMessage(msg.key.remoteJid, { text: "Estou vivo na nuvem! 🚀" });
     });
 }
+
 startBot();
