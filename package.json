@@ -1,11 +1,12 @@
 {
-  "name": "jackson-beatz",
+  "name": "jackson-beatz-self-pair",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": { "start": "node index.js" },
   "dependencies": {
     "@whiskeysockets/baileys": "latest",
     "pino": "latest",
-    "express": "latest"
+    "express": "latest",
+    "body-parser": "latest"
   }
 }
