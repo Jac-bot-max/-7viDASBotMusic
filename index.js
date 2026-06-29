@@ -3,34 +3,43 @@ const pino = require('pino');
 const express = require('express');
 const bodyParser = require('body-parser');
 const yts = require('yt-search');
+const fs = require('fs');
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// --- PÁGINA PARA MANTER O BOT ACORDADO ---
+// PÁGINA PARA GERAR O CÓDIGO
 app.get('/', (req, res) => {
     res.send(`
         <body style="font-family:sans-serif; text-align:center; background:#111; color:white; padding:50px;">
-            <h1>🤖 Jackson Beatz Bot On-line</h1>
-            <p>Bot gerenciando grupos e produção musical.</p>
+            <h1>🤖 Jackson Beatz - Sistema Anti-Sono</h1>
+            <p>Se o bot deslogar, gere o código abaixo:</p>
             <form action="/getcode" method="POST">
-                <input type="text" name="number" placeholder="25884..." required style="padding:10px; border-radius:5px;">
-                <button type="submit" style="padding:10px; background:green; color:white; border:none; border-radius:5px;">Novo Código</button>
+                <input type="text" name="number" placeholder="258..." required style="padding:15px; border-radius:10px; width:70%;">
+                <br><br>
+                <button type="submit" style="padding:15px 30px; background:#25d366; color:white; border:none; border-radius:10px; font-weight:bold;">GERAR CONEXÃO</button>
             </form>
         </body>
     `);
 });
 
 const dicas = [
-    "🎧 *Dica:* Use um filtro High-Pass em tudo que não for Bumbo ou Baixo para limpar a mixagem.",
-    "🎹 *Dica:* No FL Studio, use 'Alt+R' no piano roll para humanizar as notas.",
-    "🎙️ *Dica:* Grave vozes com o microfone levemente inclinado para evitar 'pufs' de ar.",
-    "🔥 *Dica:* Use Soft Clipper no Master para ganhar volume sem distorcer.",
-    "🎚️ *Dica:* Mixagem é equilíbrio. Se algo não aparece, talvez outra coisa precise baixar o volume."
+    "🎧 *Dica:* Use um filtro High-Pass em tudo que não for Bumbo ou Baixo.",
+    "🎹 *Dica:* Varie a 'velocity' das notas no piano para soar real.",
+    "🎙️ *Dica:* Ajuste os volumes (Gain Staging) antes de colocar plugins.",
+    "🔥 *Dica:* Use Soft Clipper no Master para ganhar volume sem distorcer."
 ];
 
 async function startBot(numberToPair, res) {
+    // 1. SE EXISTIR UMA SESSION NO RENDER, ELE ESCREVE NO ARQUIVO ANTES DE LIGAR
+    if (!fs.existsSync('./session_data')) fs.mkdirSync('./session_data');
+    if (process.env.SESSION_DATA && !fs.existsSync('./session_data/creds.json')) {
+        const decoded = Buffer.from(process.env.SESSION_DATA, 'base64').toString();
+        fs.writeFileSync('./session_data/creds.json', decoded);
+        console.log("✅ LOGIN RECUPERADO DA MEMÓRIA DO RENDER!");
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState('session_data');
     
     const sock = makeWASocket({
@@ -41,89 +50,50 @@ async function startBot(numberToPair, res) {
         markOnlineOnConnect: true
     });
 
-    sock.ev.on('creds.update', saveCreds);
-
-    // --- 1. BOAS-VINDAS (QUEM ENTRA NO GRUPO) ---
-    sock.ev.on('group-participants.update', async (anu) => {
-        if (anu.action === 'add') {
-            const user = anu.participants[0];
-            await sock.sendMessage(anu.id, { 
-                text: `Olá @${user.split('@')[0]}, bem-vindo ao grupo *Jackson Beatz*! 🎹🔥\nDigite *!menu* para ver o que eu faço.`,
-                mentions: [user]
-            });
-        }
+    // 2. TODA VEZ QUE O LOGIN MUDA, ELE MOSTRA O CÓDIGO NOS LOGS PARA VOCÊ SALVAR
+    sock.ev.on('creds.update', async () => {
+        await saveCreds();
+        const creds = fs.readFileSync('./session_data/creds.json');
+        console.log("\n--- COPIE ESTE TEXTO PARA AS VARIÁVEIS DO RENDER ---");
+        console.log(Buffer.from(creds).toString('base64'));
+        console.log("---------------------------------------------------\n");
     });
 
+    if (!sock.authState.creds.registered && numberToPair) {
+        await delay(5000);
+        try {
+            const code = await sock.requestPairingCode(numberToPair);
+            res.send(`<h1>CÓDIGO: <span style="color:green;">${code}</span></h1><p>Cole no WhatsApp e olhe os LOGS do Render depois.</p>`);
+        } catch (e) { res.send("Erro. Tente em 1 minuto."); }
+    }
+
     sock.ev.on('connection.update', (u) => {
-        const { connection, lastDisconnect, qr } = u;
+        const { connection, lastDisconnect } = u;
         if (connection === 'open') console.log('✅ BOT JACKSON BEATZ ONLINE!');
         if (connection === 'close') {
             if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) startBot();
         }
     });
 
-    // --- PAREAMENTO WEB ---
-    if (!sock.authState.creds.registered && numberToPair) {
-        await delay(5000);
-        try {
-            const code = await sock.requestPairingCode(numberToPair);
-            res.send(`<h1>CÓDIGO: <span style="color:green;">${code}</span></h1><p>Cole no WhatsApp.</p>`);
-        } catch (e) { res.send("Erro. Tente em 1 minuto."); }
-    }
-
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
-
         const chat = msg.key.remoteJid;
-        const isGroup = chat.endsWith('@g.us');
         const texto = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase().trim();
 
-        // 2. COMANDO MENU
         if (texto === '!menu') {
-            const menu = `🤖 *JACKSON BEATZ MENU*\n\n` +
-                         `👉 *!dica* - Dica de Produção\n` +
-                         `👉 *!foto [nome]* - Capa de música\n` +
-                         `👉 *!ban* - Banir membro (Responda a ele)\n` +
-                         `👉 *!ping* - Testar bot\n\n` +
-                         `🚫 *Anti-Link Ativo*`;
-            await sock.sendMessage(chat, { text: menu }, { quoted: msg });
+            await sock.sendMessage(chat, { text: "🤖 *BOT JACKSON BEATZ*\n\n!dica - Dica de Produção\n!foto [nome] - Capa de música\n!ping - Status" }, { quoted: msg });
         }
-
-        // 3. COMANDO DICA
         if (texto === '!dica') {
             const d = dicas[Math.floor(Math.random() * dicas.length)];
-            await sock.sendMessage(chat, { text: d }, { quoted: msg });
+            await sock.sendMessage(chat, { text: `🔥 *DICA:* ${d}` });
         }
-
-        // 4. BUSCAR FOTO YOUTUBE (!foto)
+        if (texto === '!ping') await sock.sendMessage(chat, { text: "🚀 Estou vivo e rápido!" });
         if (texto.startsWith('!foto')) {
             const busca = texto.replace('!foto', '').trim();
-            if (!busca) return sock.sendMessage(chat, { text: 'Diga o nome da música!' });
             const r = await yts(busca);
             const vid = r.videos[0];
-            if (vid) {
-                await sock.sendMessage(chat, { image: { url: vid.thumbnail }, caption: `🎬 *${vid.title}*\n⏱️ ${vid.timestamp}` });
-            }
-        }
-
-        // 5. BANIR MEMBRO (Responda a alguém com !ban)
-        if (texto === '!ban' && isGroup) {
-            const citado = msg.message.extendedTextMessage?.contextInfo?.participant;
-            if (!citado) return sock.sendMessage(chat, { text: 'Responda a alguém para banir!' });
-            await sock.groupParticipantsUpdate(chat, [citado], 'remove');
-            await sock.sendMessage(chat, { text: '👤 Usuário removido!' });
-        }
-
-        // 6. ANTI-LINK (REMOVER LINKS DE GRUPOS)
-        if (isGroup && texto.includes('chat.whatsapp.com/')) {
-            await sock.sendMessage(chat, { delete: msg.key });
-            await sock.sendMessage(chat, { text: "🚫 *Links de outros grupos são proibidos!*" });
-        }
-
-        // 7. PING
-        if (texto === '!ping') {
-            await sock.sendMessage(chat, { text: "🏓 Pong! Estou vivo no Render!" });
+            if (vid) await sock.sendMessage(chat, { image: { url: vid.thumbnail }, caption: `🎬 *${vid.title}*` });
         }
     });
 }
