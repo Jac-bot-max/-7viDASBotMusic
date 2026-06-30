@@ -1,9 +1,12 @@
 {
   "name": "jackson-beatz-v3",
-  "version": "1.4.0",
+  "version": "1.4.5",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
+  },
+  "engines": {
+    "node": "20.x"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "6.6.0",
