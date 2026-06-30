@@ -12,7 +12,6 @@
     "@whiskeysockets/baileys": "latest",
     "mongoose": "latest",
     "express": "latest",
-    "pino": "latest",
-    "yt-search": "latest"
+    "pino": "latest"
   }
 }
