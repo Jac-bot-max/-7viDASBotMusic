@@ -3,40 +3,24 @@ const pino = require("pino");
 const express = require("express");
 const app = express();
 
-const port = process.env.PORT || 10000;
-
-// INTERFACE WEB (PARA PEDIR A NOTIFICAÇÃO)
+// 1. O SERVIDOR QUE O CRON-JOB ACESSA (Igual ao seu print)
 app.get("/", (req, res) => {
-    res.send(`
-        <html>
-            <head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-            <body style="background:#000; color:#fff; text-align:center; padding-top:50px; font-family:sans-serif;">
-                <h1 style="color:#25D366;">JACKSON BEATZ V3</h1>
-                <p>O bot está pronto. Digite o número para receber a NOTIFICAÇÃO:</p>
-                <input type="number" id="num" placeholder="DDI + Número" style="padding:15px; border-radius:10px; width:250px; font-size:18px;">
-                <br><br>
-                <button onclick="gerar()" style="padding:15px 30px; background:#25D366; font-weight:bold; cursor:pointer; border-radius:10px;">RECEBER NOTIFICAÇÃO</button>
-                <h1 id="res" style="color:#ffff00; font-size:45px; margin-top:30px;"></h1>
-                <p id="st" style="color:#aaa;"></p>
-                <script>
-                    function gerar() {
-                        const n = document.getElementById('num').value;
-                        if(!n) return alert('Digite o número!');
-                        document.getElementById('st').innerText = 'Enviando notificação ao WhatsApp...';
-                        fetch('/pairing?nh=' + n).then(r => r.json()).then(d => {
-                            document.getElementById('res').innerText = d.code || 'Erro';
-                            document.getElementById('st').innerText = d.code ? 'NOTIFICAÇÃO ENVIADA! Verifique seu celular.' : 'Erro ao gerar.';
-                        });
-                    }
-                </script>
-            </body>
-        </html>
-    `);
+    res.send("✅ BOT JACKSON BEATZ ONLINE!");
 });
 
 async function startJacksonBot() {
-    // Começa uma sessão limpa, sem arquivos velhos
+    // 2. Tenta ler a SESSION_DATA das variáveis do Render
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    
+    if (process.env.SESSION_DATA && !state.creds.registered) {
+        try {
+            const sessData = JSON.parse(Buffer.from(process.env.SESSION_DATA, 'base64').toString());
+            state.creds = sessData;
+            console.log("📥 Sessão recuperada da SESSION_DATA!");
+        } catch (e) {
+            console.log("Erro ao carregar SESSION_DATA");
+        }
+    }
 
     const sock = makeWASocket({
         logger: pino({ level: "silent" }),
@@ -44,47 +28,57 @@ async function startJacksonBot() {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
         },
-        // NAVEGADOR QUE FORÇA A NOTIFICAÇÃO (Simulando um Mac)
-        browser: ["Mac OS", "Chrome", "10.15.7"],
+        browser: ["Ubuntu", "Chrome", "20.0.04"], // Simula navegador para notificação
         printQRInTerminal: false
     });
 
-    // Rota de Pareamento
-    app.get("/pairing", async (req, res) => {
-        let nh = req.query.nh;
-        try {
-            await delay(1500); // Espera estabilizar
-            let code = await sock.requestPairingCode(nh);
-            res.json({ code: code });
-        } catch (e) { res.json({ error: true }); }
-    });
+    // 3. LOGICA PARA GERAR A NOTIFICAÇÃO E O CÓDIGO
+    if (!sock.authState.creds.registered) {
+        // COLOQUE SEU NÚMERO AQUI (Ex: 244923000000)
+        const meuNumero = "SEU_NUMERO_AQUI"; 
+
+        setTimeout(async () => {
+            try {
+                let code = await sock.requestPairingCode(meuNumero);
+                console.log(`\n\n////////////////////////////////////////////////////\n`);
+                console.log(`👉 SEU CÓDIGO DE PAREAMENTO: ${code}`);
+                console.log(`\n////////////////////////////////////////////////////\n`);
+            } catch (err) {
+                console.log("Erro ao gerar código. Verifique o número.");
+            }
+        }, 5000);
+    }
 
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on("connection.update", (u) => {
-        const { connection, lastDisconnect } = u;
-        if (connection === "close") {
-            // Só reinicia se o erro NÃO for de "deslogado"
-            const status = lastDisconnect?.error?.output?.statusCode;
-            if (status !== 401) startJacksonBot();
-        } else if (connection === "open") {
-            console.log("\n🚀 BOT CONECTADO COM SUCESSO!");
-            // GERA O TEXTO QUE VOCÊ VAI COPIAR PARA O RENDER
+        const { connection } = u;
+        if (connection === "close") startJacksonBot();
+        if (connection === "open") {
+            console.log("\n////////////////////////////////////////////////////\n");
+            console.log("✅ BOT JACKSON BEATZ ONLINE!");
+            console.log("\n////////////////////////////////////////////////////\n");
+            
+            // --- GERADOR DO BLOCO DE SESSÃO (IGUAL AO SEU PRINT) ---
             const sessionStr = Buffer.from(JSON.stringify(sock.authState.creds)).toString('base64');
-            console.log("\n--- COPIE O TEXTO ABAIXO E SALVE NA SESSION_DATA ---\n");
+            console.log("\n--- COPIE O BLOCO ABAIXO E COLE NA SESSION_DATA ---\n");
             console.log(sessionStr);
-            console.log("\n---------------------------------------------------\n");
+            console.log("\n----------------------------------------------------\n");
         }
     });
 
+    // Resposta simples para teste
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const m = messages[0];
         if (!m.message || m.key.fromMe) return;
         if (m.message.conversation === "!ping") {
-            await sock.sendMessage(m.key.remoteJid, { text: "🏓 Pong! V3 Online." });
+            await sock.sendMessage(m.key.remoteJid, { text: "🏓 Pong! Bot ativo." });
         }
     });
 }
 
-app.listen(port, () => console.log("Servidor Web Ativo"));
+app.listen(process.env.PORT || 10000, () => {
+    console.log("Servidor Web Ativo!");
+});
+
 startJacksonBot();
