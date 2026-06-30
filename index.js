@@ -29,7 +29,7 @@ async function startJacksonBot() {
     // --- PAREAMENTO POR CÓDIGO ---
     if (!sock.authState.creds.registered) {
         // COLOQUE SEU NÚMERO ABAIXO (Apenas números, com DDI)
-        const meuNumero = "2449XXXXXXXX"; // <-- MUDE AQUI!
+        const meuNumero = "258848786486"; // <-- MUDE AQUI!
 
         setTimeout(async () => {
             try {
