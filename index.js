@@ -1,88 +1,90 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
-const qrcode = require('qrcode-terminal');
+const { default: makeWASocket, useMultiFileAuthState, disconnects, fetchLatestBaileysVersion, makeInMemoryStore, jidDecode } = require("@whiskeysockets/baileys");
 const mongoose = require('mongoose');
-const express = require('express'); // Adicionado para o Render
+const express = require('express');
+const pino = require('pino');
 
+// Servidor para o Render não dormir
 const app = express();
-const port = process.env.PORT || 10000;
+app.get('/', (req, res) => res.send('Bot Jackson Beatz V3 Online!'));
+app.listen(process.env.PORT || 10000);
 
-// Servidor para o Render não desligar o bot
-app.get('/', (req, res) => res.send('Bot Jackson Beatz Online!'));
-app.listen(port, () => console.log(`Servidor rodando na porta ${port}`));
+// 1. BANCO DE DADOS (MONITOR DE ADVERTÊNCIAS)
+const MONGO_URI = 'mongodb+srv://Jackson:Bot123@cluster0.qrdsoog.mongodb.net/?appName=Cluster0';
+mongoose.connect(MONGO_URI).then(() => console.log('✅ Banco de Dados Conectado!'));
 
-// ==========================================
-// 1. CONEXÃO COM O BANCO DE DADOS (MONGO)
-// ==========================================
-const MONGO_URI = 'mongodb+srv://Jackson:Bot123@cluster0.qrdsoog.mongodb.net/?appName=Cluster0'; 
+const User = mongoose.model('User', new mongoose.Schema({
+    userId: String, groupId: String, warnings: { type: Number, default: 0 }
+}));
 
-mongoose.connect(MONGO_URI)
-    .then(() => console.log('✅ Jackson Beatz: Banco de Dados Conectado!'))
-    .catch(err => console.error('❌ Erro no MongoDB:', err));
+// 2. LÓGICA DE CONEXÃO (BAILEYS)
+async function startJacksonBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
-const UserSchema = new mongoose.Schema({
-    userId: String,
-    groupId: String,
-    warnings: { type: Number, default: 0 }
-});
-const User = mongoose.model('User', UserSchema);
+    const sock = makeWASocket({
+        logger: pino({ level: 'silent' }),
+        printQRInTerminal: true,
+        auth: state,
+        browser: ["Jackson Beatz", "MacOS", "3.0.0"]
+    });
 
-// ==========================================
-// 2. CONFIGURAÇÃO DO BOT (COM FIX PARA RENDER)
-// ==========================================
-const client = new Client({
-    authStrategy: new LocalAuth(), 
-    puppeteer: {
-        headless: true,
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
-            '--disable-gpu'
-        ],
+    // SISTEMA DE PAREAMENTO POR CÓDIGO (Caso a sessão caia)
+    // Se você precisar logar de novo, o código de 8 dígitos aparecerá nos logs do Render
+    if (!sock.authState.creds.registered) {
+        const phoneNumber = "SEU_NUMERO_COM_DDI_AQUI"; // Ex: 5511999999999
+        setTimeout(async () => {
+            let code = await sock.requestPairingCode(phoneNumber);
+            console.log(`🔑 CÓDIGO DE PAREAMENTO: ${code}`);
+        }, 3000);
     }
-});
 
-client.on('qr', qr => qrcode.generate(qr, {small: true}));
-client.on('ready', () => console.log('🚀 Bot Jackson Beatz V3 Online!'));
+    sock.ev.on('creds.update', saveCreds);
 
-// Lógica de Mensagens
-client.on('message_create', async (msg) => {
-    if (msg.fromMe) return;
-    const chat = await msg.getChat();
-    const contact = await msg.getContact();
-    const isGroup = chat.isGroup;
-    const body = msg.body || '';
-    const authorId = msg.author || msg.from;
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        const msg = messages[0];
+        if (!msg.message || msg.key.fromMe) return;
 
-    // ANTI-LINK
-    if (isGroup) {
-        const admins = chat.participants.filter(p => p.isAdmin).map(p => p.id._serialized);
-        const isSenderAdmin = admins.includes(authorId);
-        if (body.includes('http') && !isSenderAdmin) {
-            await msg.delete(true);
-            await chat.removeParticipants([authorId]);
-            return;
+        const from = msg.key.remoteJid;
+        const body = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+        const isGroup = from.endsWith('@g.us');
+        const sender = msg.key.participant || from;
+
+        // --- ANTI-LINK AUTOMÁTICO ---
+        if (isGroup && body.includes('http')) {
+            const groupMetadata = await sock.groupMetadata(from);
+            const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
+            if (!admins.includes(sender)) {
+                await sock.sendMessage(from, { delete: msg.key });
+                await sock.groupParticipantsUpdate(from, [sender], "remove");
+                return;
+            }
         }
-    }
 
-    // COMANDOS
-    const prefix = "!";
-    if (!body.startsWith(prefix)) return;
-    const command = body.split(' ')[0].toLowerCase();
-    const args = body.slice(command.length).trim();
+        // --- COMANDOS ---
+        const prefix = "!";
+        if (!body.startsWith(prefix)) return;
+        const command = body.split(' ')[0].toLowerCase();
 
-    if (command === `${prefix}menu`) {
-        msg.reply("🎵 *JACKSON BEATZ V3*\n\n🛡️ !status\n🔍 !drumkit\n💡 !dica");
-    }
+        if (command === `${prefix}menu`) {
+            await sock.sendMessage(from, { text: "🎵 *JACKSON BEATZ V3*\n\n!status - Ver avisos\n!anuncio - Enviar aviso global\n!dica - Dica de beat" });
+        }
 
-    if (command === `${prefix}status`) {
-        const data = await User.findOne({ userId: authorId, groupId: chat.id._serialized });
-        msg.reply(`⚠️ @${contact.id.user}, avisos: ${data ? data.warnings : 0}/3`, null, { mentions: [contact] });
-    }
-});
+        if (command === `${prefix}status`) {
+            const data = await User.findOne({ userId: sender, groupId: from });
+            await sock.sendMessage(from, { text: `⚠️ Avisos: ${data ? data.warnings : 0}/3` });
+        }
+        
+        // Adicione aqui os outros 10 comandos que você planejou
+    });
 
-client.initialize();
+    sock.ev.on('connection.update', (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === 'close') {
+            console.log("Reconectando...");
+            startJacksonBot();
+        } else if (connection === 'open') {
+            console.log("🚀 BOT ONLINE E CONECTADO!");
+        }
+    });
+}
+
+startJacksonBot();
