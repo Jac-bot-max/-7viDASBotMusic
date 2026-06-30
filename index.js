@@ -1,102 +1,212 @@
-const { default: makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore } = require("@whiskeysockets/baileys");
-const pino = require("pino");
-const express = require("express");
-const app = express();
+**
+ * Script de
+ * inicialização do bot.
+ *
+ * Este script é
+ * responsável por
+ * iniciar a conexão
+ * com o WhatsApp.
+ *
+ * Não é recomendado alterar
+ * este arquivo,
+ * a menos que você saiba
+ * o que está fazendo.
+ *
+ * @author Dev Gui
+ */
+import makeWASocket, {
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  isJidBroadcast,
+  isJidNewsletter,
+  isJidStatusBroadcast,
+  useMultiFileAuthState,
+} from "baileys";
+import NodeCache from "node-cache";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import pino from "pino";
+import { PREFIX, TEMP_DIR } from "./config.js";
+import { load } from "./loader.js";
+import { badMacHandler } from "./utils/badMacHandler.js";
+import { onlyNumbers, question } from "./utils/index.js";
+import {
+  bannerLog,
+  errorLog,
+  infoLog,
+  successLog,
+  warningLog,
+} from "./utils/logger.js";
 
-// INTERFACE WEB - TRAVADA PARA MOÇAMBIQUE
-app.get("/", (req, res) => {
-    res.send(`
-        <html>
-            <head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
-            <body style="background:#000; color:#fff; text-align:center; padding-top:50px; font-family:sans-serif;">
-                <h1 style="color:#00ff00;">JACKSON BEATZ V3</h1>
-                <p>O código será enviado para o WhatsApp de Moçambique.</p>
-                
-                <div style="background:#222; padding:20px; display:inline-block; border-radius:10px;">
-                    <span style="font-size:20px; font-weight:bold;">+258</span>
-                    <input type="number" id="num" placeholder="84... / 82... / 87..." style="padding:10px; border-radius:5px; border:none; font-size:18px; width:180px;">
-                </div>
-                <br><br>
-                <button onclick="gerar()" style="padding:15px 30px; background:#00ff00; font-weight:bold; cursor:pointer; border-radius:10px; border:none;">RECEBER NOTIFICAÇÃO</button>
-                
-                <h1 id="res" style="color:#ffff00; font-size:50px; margin-top:30px; letter-spacing:5px;"></h1>
-                <p id="st" style="color:#888;"></p>
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-                <script>
-                    function gerar() {
-                        let n = document.getElementById('num').value;
-                        if(n.length < 8) return alert('Número muito curto!');
-                        
-                        // Garante que o número comece com 258 para o WhatsApp reconhecer
-                        let fullNumber = "258" + n.replace(/^258/, '');
-                        
-                        document.getElementById('st').innerText = 'Solicitando notificação para ' + fullNumber + '...';
-                        fetch('/pairing?nh=' + fullNumber).then(r => r.json()).then(d => {
-                            if(d.code) {
-                                document.getElementById('res').innerText = d.code;
-                                document.getElementById('st').innerText = 'NOTIFICAÇÃO ENVIADA! Veja o topo do seu celular.';
-                            } else {
-                                document.getElementById('st').innerText = 'Erro! Tente novamente em 1 minuto.';
-                            }
-                        });
-                    }
-                </script>
-            </body>
-        </html>
-    `);
-});
-
-async function startBot() {
-    const { state, saveCreds } = await useMultiFileAuthState('session_auth');
-
-    // BLINDAGEM: Se tiver a SESSION_DATA no Render, ele ignora o login
-    if (process.env.SESSION_DATA && !state.creds.registered) {
-        try {
-            state.creds = JSON.parse(Buffer.from(process.env.SESSION_DATA, 'base64').toString());
-        } catch (e) { console.log("Erro na SESSION_DATA"); }
-    }
-
-    const sock = makeWASocket({
-        logger: pino({ level: "silent" }),
-        auth: {
-            creds: state.creds,
-            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
-        },
-        // O NOME DO DISPOSITIVO QUE APARECE NA NOTIFICAÇÃO
-        browser: ["Jackson Beatz", "Chrome", "1.0.0"],
-        printQRInTerminal: false,
-        syncFullHistory: false
-    });
-
-    app.get("/pairing", async (req, res) => {
-        let nh = req.query.nh;
-        try {
-            await delay(2000); // Espera estabilizar
-            let code = await sock.requestPairingCode(nh);
-            res.json({ code });
-        } catch (e) { res.json({ error: true }); }
-    });
-
-    sock.ev.on("creds.update", saveCreds);
-
-    sock.ev.on("connection.update", (u) => {
-        if (u.connection === "close") startBot();
-        if (u.connection === "open") {
-            console.log("\n🚀 CONECTADO COM SUCESSO!");
-            const sessionStr = Buffer.from(JSON.stringify(sock.authState.creds)).toString('base64');
-            console.log("\n--- COPIE O BLOCO ABAIXO ---");
-            console.log(sessionStr);
-            console.log("----------------------------\n");
-        }
-    });
-
-    sock.ev.on("messages.upsert", async ({ messages }) => {
-        const m = messages[0];
-        if (m.message?.conversation === "!ping") {
-            await sock.sendMessage(m.key.remoteJid, { text: "🏓 Pong! Bot Moçambique ativo." });
-        }
-    });
+if (!fs.existsSync(TEMP_DIR)) {
+  fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-app.listen(process.env.PORT || 10000);
-startBot();
+const logger = pino(
+  { timestamp: () => `,"time":"${new Date().toJSON()}"` },
+  pino.destination(path.join(TEMP_DIR, "wa-logs.txt")),
+);
+
+logger.level = "error";
+
+const msgRetryCounterCache = new NodeCache();
+
+function formatPairingCode(code) {
+  if (!code) return code;
+
+  return code?.match(/.{1,4}/g)?.join("-") || code;
+}
+
+function clearScreenWithBanner() {
+  console.clear();
+  bannerLog();
+}
+
+export async function connect() {
+  const baileysFolder = path.resolve(
+    __dirname,
+    "..",
+    "assets",
+    "auth",
+    "baileys",
+  );
+
+  const { state, saveCreds } = await useMultiFileAuthState(baileysFolder);
+
+  const { version } = await fetchLatestBaileysVersion();
+
+  const socket = makeWASocket({
+    version,
+    logger,
+    defaultQueryTimeoutMs: undefined,
+    retryRequestDelayMs: 5000,
+    auth: state,
+    shouldIgnoreJid: (jid) =>
+      isJidBroadcast(jid) || isJidStatusBroadcast(jid) || isJidNewsletter(jid),
+    connectTimeoutMs: 20_000,
+    keepAliveIntervalMs: 30_000,
+    maxMsgRetryCount: 5,
+    markOnlineOnConnect: true,
+    syncFullHistory: false,
+    emitOwnEvents: false,
+    msgRetryCounterCache,
+    shouldSyncHistoryMessage: () => false,
+  });
+
+  if (!socket.authState.creds.registered) {
+    clearScreenWithBanner();
+    console.log(
+'Informe o número do bot com DDI completo. \nExemplo Moçambique: "258841234567"',
+);
+
+    const phoneNumber = await question("Número: ");
+
+    if (!phoneNumber) {
+      errorLog(
+        'Número de telefone inválido! Tente novamente com o comando "npm start".',
+      );
+
+      process.exit(1);
+    }
+
+const code = await socket.requestPairingCode(phoneNumber.replace(/\D/g, ''));
+    console.log(`Código de pareamento: ${formatPairingCode(code)}`);
+  }
+
+  socket.ev.on("connection.update", async (update) => {
+    const { connection, lastDisconnect } = update;
+
+    if (connection === "close") {
+      const error = lastDisconnect?.error;
+      const statusCode = error?.output?.statusCode;
+
+      if (
+        error?.message?.includes("Bad MAC") ||
+        error?.toString()?.includes("Bad MAC")
+      ) {
+        errorLog("Bad MAC error na desconexão detectado");
+
+        if (badMacHandler.handleError(error, "connection.update")) {
+          if (badMacHandler.hasReachedLimit()) {
+            warningLog(
+              "Limite de erros Bad MAC atingido. Limpando arquivos de sessão problemáticos...",
+            );
+            badMacHandler.clearProblematicSessionFiles();
+            badMacHandler.resetErrorCount();
+
+            const newSocket = await connect();
+            load(newSocket);
+            return;
+          }
+        }
+      }
+
+      if (statusCode === DisconnectReason.loggedOut) {
+        errorLog("Bot desconectado!");
+      } else {
+        switch (statusCode) {
+          case DisconnectReason.badSession:
+            warningLog("Sessão inválida!");
+
+            const sessionError = new Error("Bad session detected");
+            if (badMacHandler.handleError(sessionError, "badSession")) {
+              if (badMacHandler.hasReachedLimit()) {
+                warningLog(
+                  "Limite de erros de sessão atingido. Limpando arquivos de sessão...",
+                );
+                badMacHandler.clearProblematicSessionFiles();
+                badMacHandler.resetErrorCount();
+              }
+            }
+            break;
+          case DisconnectReason.connectionClosed:
+            warningLog("Conexão fechada!");
+            break;
+          case DisconnectReason.connectionLost:
+            warningLog("Conexão perdida!");
+            break;
+          case DisconnectReason.connectionReplaced:
+            warningLog("Conexão substituída!");
+            break;
+          case DisconnectReason.multideviceMismatch:
+            warningLog("Dispositivo incompatível!");
+            break;
+          case DisconnectReason.forbidden:
+            warningLog("Conexão proibida!");
+            break;
+          case DisconnectReason.restartRequired:
+            infoLog('Me reinicie por favor! Digite "npm start".');
+            break;
+          case DisconnectReason.unavailableService:
+            warningLog("Serviço indisponível!");
+            break;
+        }
+
+        const newSocket = await connect();
+        load(newSocket);
+      }
+    } else if (connection === "open") {
+      clearScreenWithBanner();
+      successLog("✅ Bot iniciado com sucesso!");
+      successLog("Fui conectado com sucesso!");
+      infoLog("Versão do WhatsApp Web: " + version.join("."));
+      successLog(
+        `✅ Estou pronto para uso! 
+Verifique o prefixo, digitando a palavra "prefixo" no WhatsApp. 
+O prefixo padrão definido no config.js é ${PREFIX}`,
+      );
+      badMacHandler.resetErrorCount();
+    } else if (connection === "connecting") {
+      infoLog("Conectando...");
+    } else {
+      infoLog("Atualizando conexão...");
+    }
+  });
+
+  socket.ev.on("creds.update", saveCreds);
+
+  return socket;
