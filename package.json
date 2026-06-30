@@ -1,6 +1,17 @@
-"dependencies": {
+{
+  "name": "7vidas-bot",
+  "version": "1.0.0",
+  "description": "Bot de WhatsApp para Render",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
     "baileys": "latest",
-    "express": "^4.18.2", 
+    "express": "^4.18.2",
     "pino": "latest",
-    "node-cache": "latest"
+    "node-cache": "latest",
+    "yt-search": "latest"
   }
+}
