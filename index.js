@@ -1,68 +1,82 @@
 import express from 'express';
-import makeWASocket, {
-  DisconnectReason,
-  fetchLatestBaileysVersion,
-  useMultiFileAuthState,
-  delay // Importante para o pareamento
-} from "baileys";
+import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState } from "baileys";
 import pino from "pino";
-import fs from "node:fs";
-import { PREFIX, TEMP_DIR } from "./config.js";
-import { load } from "./loader.js";
+import yts from "yt-search";
 
-// Servidor para o Render e Cron-job não deixarem o bot dormir
+// 1. Servidor Web para o Render e Cron-job
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot 7vidas Online! Aguardando pareamento...'));
+app.get('/', (req, res) => res.send('Bot Online! Aguarde o código nos logs.'));
 app.listen(port, () => console.log(`Servidor rodando na porta ${port}`));
 
-async function connect() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-  const { version } = await fetchLatestBaileysVersion();
+async function startBot() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    const { version } = await fetchLatestBaileysVersion();
 
-  const socket = makeWASocket({
-    version,
-    printQRInTerminal: false, // Desativamos o QR Code
-    auth: state,
-    logger: pino({ level: "silent" }),
-  });
+    const socket = makeWASocket({
+        version,
+        printQRInTerminal: false,
+        auth: state,
+        logger: pino({ level: "silent" }),
+    });
 
-  // --- LÓGICA DO CÓDIGO DE PAREAMENTO ---
-  // Se não estiver conectado e houver um número configurado
-  if (!socket.authState.creds.registered) {
-    const numero = process.env.NUMERO_BOT; // Ele vai pegar o número que você salvou no Render
-
-    if (numero) {
-        setTimeout(async () => {
-            try {
+    // 2. Lógica do Código de Pareamento (8 dígitos)
+    if (!socket.authState.creds.registered) {
+        const numero = process.env.NUMERO_BOT; // Configure isso no Render!
+        if (numero) {
+            setTimeout(async () => {
                 let code = await socket.requestPairingCode(numero);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
-                console.log("---------------------------------------");
-                console.log(`SEU CÓDIGO DE PAREAMENTO É: ${code}`);
-                console.log("---------------------------------------");
-            } catch (error) {
-                console.error("Erro ao gerar código de pareamento:", error);
+                console.log("\n=======================================");
+                console.log(`SEU CÓDIGO DE PAREAMENTO: ${code}`);
+                console.log("=======================================\n");
+            }, 5000);
+        } else {
+            console.log("ERRO: Variável NUMERO_BOT não configurada no Render.");
+        }
+    }
+
+    socket.ev.on("creds.update", saveCreds);
+
+    socket.ev.on("connection.update", (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === "close") {
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            if (shouldReconnect) startBot();
+        } else if (connection === "open") {
+            console.log("✅ BOT CONECTADO COM SUCESSO!");
+        }
+    });
+
+    // 3. Comando !foto (YouTube)
+    socket.ev.on("messages.upsert", async (chatUpdate) => {
+        try {
+            const msg = chatUpdate.messages[0];
+            if (!msg.message || msg.key.fromMe) return;
+
+            const messageText = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+            const from = msg.key.remoteJid;
+
+            if (messageText.toLowerCase().startsWith("!foto")) {
+                const termo = messageText.slice(6).trim();
+                if (!termo) return socket.sendMessage(from, { text: "Diga o que buscar! Ex: !foto amor não é para doer" });
+
+                const search = await yts(termo);
+                const video = search.videos[0];
+
+                if (video) {
+                    await socket.sendMessage(from, { 
+                        image: { url: video.thumbnail }, 
+                        caption: `*Resultado:* ${video.title}\n*Canal:* ${video.author.name}` 
+                    });
+                } else {
+                    await socket.sendMessage(from, { text: "Não encontrei nada." });
+                }
             }
-        }, 5000); // Espera 5 segundos para o socket estabilizar
-    } else {
-        console.log("ERRO: Você não configurou a variável NUMERO_BOT no Render!");
-    }
-  }
-
-  socket.ev.on("connection.update", async (update) => {
-    const { connection, lastDisconnect } = update;
-
-    if (connection === "close") {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      if (shouldReconnect) connect();
-    } else if (connection === "open") {
-      console.log("✅ BOT CONECTADO COM SUCESSO!");
-      load(socket);
-    }
-  });
-
-  socket.ev.on("creds.update", saveCreds);
-  return socket;
+        } catch (e) {
+            console.log("Erro no comando:", e);
+        }
+    });
 }
 
-connect();
+startBot();
