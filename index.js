@@ -5,21 +5,21 @@ const app = express();
 
 const port = process.env.PORT || 10000;
 
-// SERVIDOR WEB PARA O PAREAMENTO
+// 1. SERVIDOR PARA "CUTUCAR" E GERAR O CÓDIGO
 app.get("/", (req, res) => {
     res.send(`
         <html>
-            <body style="background:#000; color:#0f0; text-align:center; padding-top:50px; font-family:sans-serif;">
-                <h1>Jackson Beatz V3 - Pareamento</h1>
-                <p>Digite seu número com DDI (Ex: 244900000000)</p>
-                <input type="text" id="num" style="padding:10px; border-radius:5px;">
-                <button onclick="gerar()" style="padding:10px; cursor:pointer;">GERAR CÓDIGO</button>
-                <h1 id="cod" style="color:yellow; font-size:50px;"></h1>
+            <body style="background:#000; color:#fff; text-align:center; padding-top:50px; font-family:sans-serif;">
+                <h1>Jackson Beatz V3</h1>
+                <p>O bot está sendo cutucado pelo Cron-job.</p>
+                <input type="text" id="n" placeholder="Seu número (Ex: 244900000000)" style="padding:10px;">
+                <button onclick="g()" style="padding:10px; cursor:pointer;">GERAR CÓDIGO</button>
+                <h1 id="c" style="color:yellow; font-size:50px;"></h1>
                 <script>
-                    function gerar() {
-                        const n = document.getElementById('num').value;
-                        fetch('/pairing?nh=' + n).then(r => r.json()).then(d => {
-                            document.getElementById('cod').innerText = d.code || 'Erro';
+                    function g() {
+                        const num = document.getElementById('n').value;
+                        fetch('/pairing?nh=' + num).then(r => r.json()).then(d => {
+                            document.getElementById('c').innerText = d.code || 'Erro';
                         });
                     }
                 </script>
@@ -28,16 +28,14 @@ app.get("/", (req, res) => {
     `);
 });
 
-async function startJacksonBot() {
-    // 1. LÓGICA DE SESSÃO (SESSION_DATA)
+async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
-    // Se você já tiver a SESSION_DATA salva no Render, o bot entra direto por aqui:
+    // BLINDAGEM: Se você já tiver colado a SESSION_DATA no Render, o bot entra direto por aqui
     if (process.env.SESSION_DATA && !state.creds.registered) {
         try {
-            const sessData = JSON.parse(Buffer.from(process.env.SESSION_DATA, 'base64').toString());
-            state.creds = sessData;
-            console.log("📥 SESSÃO RECUPERADA DA SESSION_DATA!");
+            state.creds = JSON.parse(Buffer.from(process.env.SESSION_DATA, 'base64').toString());
+            console.log("✅ SESSÃO CARREGADA DA SESSION_DATA!");
         } catch (e) { console.log("Erro ao carregar SESSION_DATA"); }
     }
 
@@ -47,46 +45,41 @@ async function startJacksonBot() {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
         },
-        browser: ["Jackson Beatz", "Chrome", "1.0.0"],
-        syncFullHistory: false
+        browser: ["Jackson Beatz V3", "Chrome", "1.0.0"]
     });
 
-    // Rota para o botão do site funcionar
+    // Rota para o botão do site gerar o código
     app.get("/pairing", async (req, res) => {
         let nh = req.query.nh;
         try {
             let code = await sock.requestPairingCode(nh);
-            res.json({ code: code });
-        } catch (e) { res.json({ error: true }); }
+            res.json({ code });
+        } catch { res.json({ code: "Erro" }); }
     });
 
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on("connection.update", (u) => {
-        const { connection } = u;
-        if (connection === "close") startJacksonBot();
-        if (connection === "open") {
-            console.log("\n🚀 BOT CONECTADO COM SUCESSO!");
+        if (u.connection === "close") startBot();
+        if (u.connection === "open") {
+            console.log("\n🚀 CONECTADO COM SUCESSO!");
             
-            // --- AQUI ESTÁ A KEY QUE VOCÊ PRECISA COPIAR ---
+            // AQUI GERA O TEXTO QUE VOCÊ VAI COLAR NO RENDER
             const sessionStr = Buffer.from(JSON.stringify(sock.authState.creds)).toString('base64');
-            console.log("\n================ SESSION_DATA (COPIE TUDO ABAIXO) ================\n");
+            console.log("\n--- COPIE O TEXTO ABAIXO E COLE NA SESSION_DATA NO RENDER ---\n");
             console.log(sessionStr);
-            console.log("\n==================================================================\n");
+            console.log("\n----------------------------------------------------------\n");
         }
     });
 
-    // COMANDOS BÁSICOS
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const m = messages[0];
         if (!m.message || m.key.fromMe) return;
-        const from = m.key.remoteJid;
-        const body = m.message.conversation || m.message.extendedTextMessage?.text || "";
-
-        if (body === "!ping") await sock.sendMessage(from, { text: "🏓 Pong! V3 Online." });
-        if (body === "!menu") await sock.sendMessage(from, { text: "🎵 *JACKSON BEATZ V3*\n\nBot configurado e blindado!" });
+        if (m.message.conversation === "!ping") {
+            await sock.sendMessage(m.key.remoteJid, { text: "🏓 Pong! V3 Online." });
+        }
     });
 }
 
-app.listen(port, () => console.log("Site de Pareamento Online!"));
-startJacksonBot();
+app.listen(port);
+startBot();
