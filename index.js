@@ -1,66 +1,75 @@
-const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, delay } = require("@whiskeysockets/baileys");
-const mongoose = require('mongoose');
-const express = require('express');
-const pino = require('pino');
+const { default: makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, disconnects } = require("@whiskeysockets/baileys");
+const pino = require("pino");
+const mongoose = require("mongoose");
+const express = require("express");
 
-// Servidor para o Render
+// Servidor para manter o bot ativo
 const app = express();
-app.get('/', (req, res) => res.send('Bot Jackson Beatz V3 - Sessão no Banco Ativa!'));
+app.get("/", (req, res) => res.send("Jackson Beatz V3 Online!"));
 app.listen(process.env.PORT || 10000);
 
-// 1. CONEXÃO MONGODB
+// Conexão MongoDB
 const MONGO_URI = 'mongodb+srv://Jackson:Bot123@cluster0.qrdsoog.mongodb.net/?appName=Cluster0';
 mongoose.connect(MONGO_URI).then(() => console.log('✅ Banco de Dados Conectado!'));
 
-// Modelo para guardar a SESSÃO e ADVERTÊNCIAS
-const AuthSchema = new mongoose.Schema({ id: String, session: String });
-const Auth = mongoose.model('Auth', AuthSchema);
-const User = mongoose.model('User', new mongoose.Schema({ userId: String, groupId: String, warnings: { type: Number, default: 0 } }));
-
 async function startJacksonBot() {
-    // Lógica para recuperar a sessão do banco de dados
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    // Usaremos uma pasta temporária, mas o segredo será a String de Sessão depois
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
     const sock = makeWASocket({
-        logger: pino({ level: 'silent' }),
-        auth: state,
-        browser: ["Jackson Beatz V3", "Chrome", "1.0.0"]
+        logger: pino({ level: "silent" }),
+        auth: {
+            creds: state.creds,
+            keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
+        },
+        printQRInTerminal: false,
+        browser: ["Jackson Beatz", "Chrome", "1.0.0"],
     });
 
-    // Se o bot pedir código novamente:
+    // --- PAREAMENTO POR CÓDIGO ---
     if (!sock.authState.creds.registered) {
-        const meuNumero = "SEU_NUMERO_AQUI"; // Coloque seu número
+        // COLOQUE SEU NÚMERO ABAIXO (Apenas números, com DDI)
+        const meuNumero = "2449XXXXXXXX"; // <-- MUDE AQUI!
+
         setTimeout(async () => {
-            let code = await sock.requestPairingCode(meuNumero);
-            console.log(`🔑 NOVO CÓDIGO DE PAREAMENTO: ${code}`);
+            try {
+                let code = await sock.requestPairingCode(meuNumero);
+                console.log(`\n\n👉 SEU CÓDIGO DE PAREAMENTO: ${code}\n\n`);
+            } catch (err) {
+                console.log("Erro ao gerar código. Reinicie o Deploy.");
+            }
         }, 10000);
     }
 
-    // Salva as credenciais sempre que houver mudança
-    sock.ev.on('creds.update', saveCreds);
+    sock.ev.on("creds.update", saveCreds);
 
-    sock.ev.on('messages.upsert', async ({ messages }) => {
+    sock.ev.on("connection.update", (update) => {
+        const { connection, lastDisconnect } = update;
+        if (connection === "close") {
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== 401;
+            if (shouldReconnect) startJacksonBot();
+        } else if (connection === "open") {
+            console.log("🚀 BOT CONECTADO E BLINDADO!");
+            
+            // LOG DE SEGURANÇA: Avisa que conectou
+            sock.sendMessage(sock.user.id, { text: "✅ Jackson Beatz V3: Conectado com sucesso!" });
+        }
+    });
+
+    // --- COMANDOS BÁSICOS ---
+    sock.ev.on("messages.upsert", async ({ messages }) => {
         const msg = messages[0];
         if (!msg.message || msg.key.fromMe) return;
         const from = msg.key.remoteJid;
         const body = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
 
-        if (body === "!ping") await sock.sendMessage(from, { text: "🏓 V3 Online com Memória!" });
-        
-        // Anti-link automático
-        if (from.endsWith('@g.us') && body.includes('http')) {
-            const groupMetadata = await sock.groupMetadata(from);
-            const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
-            if (!admins.includes(msg.key.participant)) {
-                await sock.sendMessage(from, { delete: msg.key });
-            }
+        if (body === "!ping") {
+            await sock.sendMessage(from, { text: "🏓 Pong! V3 ativa." });
         }
-    });
-
-    sock.ev.on('connection.update', (update) => {
-        const { connection } = update;
-        if (connection === 'close') startJacksonBot();
-        if (connection === 'open') console.log("🚀 CONECTADO COM SUCESSO!");
+        
+        if (body === "!menu") {
+            await sock.sendMessage(from, { text: "🎵 *JACKSON BEATZ V3*\n\n🛡️ !status\n🔍 !drumkit\n📢 !anuncio" });
+        }
     });
 }
 
