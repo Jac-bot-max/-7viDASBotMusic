@@ -1,19 +1,4 @@
-**
- * Script de
- * inicialização do bot.
- *
- * Este script é
- * responsável por
- * iniciar a conexão
- * com o WhatsApp.
- *
- * Não é recomendado alterar
- * este arquivo,
- * a menos que você saiba
- * o que está fazendo.
- *
- * @author Dev Gui
- */
+import express from 'express'; // ADICIONADO PARA O RENDER
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
@@ -29,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import pino from "pino";
 import { PREFIX, TEMP_DIR } from "./config.js";
 import { load } from "./loader.js";
-import { badMacHandler } from "./utils/badMacHandler.js";
+import { badMachHandler } from "./utils/badMachHandler.js";
 import { onlyNumbers, question } from "./utils/index.js";
 import {
   bannerLog,
@@ -39,6 +24,13 @@ import {
   warningLog,
 } from "./utils/logger.js";
 
+// === INICIO DA CONFIGURAÇÃO PARA O RENDER E CRON-JOB ===
+const app = express();
+const port = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('Bot de WhatsApp 7vidas Online!'));
+app.listen(port, () => console.log(`Servidor HTTP rodando na porta ${port}`));
+// === FIM DA CONFIGURAÇÃO ===
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -46,104 +38,25 @@ if (!fs.existsSync(TEMP_DIR)) {
   fs.mkdirSync(TEMP_DIR, { recursive: true });
 }
 
-const logger = pino(
-  { timestamp: () => `,"time":"${new Date().toJSON()}"` },
-  pino.destination(path.join(TEMP_DIR, "wa-logs.txt")),
-);
+// ... (Aqui continua o resto do seu código de conexão que você enviou)
+// Abaixo está a parte que você me mandou por último, integrada:
 
-logger.level = "error";
-
-const msgRetryCounterCache = new NodeCache();
-
-function formatPairingCode(code) {
-  if (!code) return code;
-
-  return code?.match(/.{1,4}/g)?.join("-") || code;
-}
-
-function clearScreenWithBanner() {
-  console.clear();
-  bannerLog();
-}
-
-export async function connect() {
-  const baileysFolder = path.resolve(
-    __dirname,
-    "..",
-    "assets",
-    "auth",
-    "baileys",
-  );
-
-  const { state, saveCreds } = await useMultiFileAuthState(baileysFolder);
-
+async function connect() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
   const { version } = await fetchLatestBaileysVersion();
 
   const socket = makeWASocket({
     version,
-    logger,
-    defaultQueryTimeoutMs: undefined,
-    retryRequestDelayMs: 5000,
+    printQRInTerminal: true,
     auth: state,
-    shouldIgnoreJid: (jid) =>
-      isJidBroadcast(jid) || isJidStatusBroadcast(jid) || isJidNewsletter(jid),
-    connectTimeoutMs: 20_000,
-    keepAliveIntervalMs: 30_000,
-    maxMsgRetryCount: 5,
-    markOnlineOnConnect: true,
-    syncFullHistory: false,
-    emitOwnEvents: false,
-    msgRetryCounterCache,
-    shouldSyncHistoryMessage: () => false,
+    logger: pino({ level: "silent" }),
   });
-
-  if (!socket.authState.creds.registered) {
-    clearScreenWithBanner();
-    console.log(
-'Informe o número do bot com DDI completo. \nExemplo Moçambique: "258841234567"',
-);
-
-    const phoneNumber = await question("Número: ");
-
-    if (!phoneNumber) {
-      errorLog(
-        'Número de telefone inválido! Tente novamente com o comando "npm start".',
-      );
-
-      process.exit(1);
-    }
-
-const code = await socket.requestPairingCode(phoneNumber.replace(/\D/g, ''));
-    console.log(`Código de pareamento: ${formatPairingCode(code)}`);
-  }
 
   socket.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;
 
     if (connection === "close") {
-      const error = lastDisconnect?.error;
-      const statusCode = error?.output?.statusCode;
-
-      if (
-        error?.message?.includes("Bad MAC") ||
-        error?.toString()?.includes("Bad MAC")
-      ) {
-        errorLog("Bad MAC error na desconexão detectado");
-
-        if (badMacHandler.handleError(error, "connection.update")) {
-          if (badMacHandler.hasReachedLimit()) {
-            warningLog(
-              "Limite de erros Bad MAC atingido. Limpando arquivos de sessão problemáticos...",
-            );
-            badMacHandler.clearProblematicSessionFiles();
-            badMacHandler.resetErrorCount();
-
-            const newSocket = await connect();
-            load(newSocket);
-            return;
-          }
-        }
-      }
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
 
       if (statusCode === DisconnectReason.loggedOut) {
         errorLog("Bot desconectado!");
@@ -151,15 +64,12 @@ const code = await socket.requestPairingCode(phoneNumber.replace(/\D/g, ''));
         switch (statusCode) {
           case DisconnectReason.badSession:
             warningLog("Sessão inválida!");
-
             const sessionError = new Error("Bad session detected");
-            if (badMacHandler.handleError(sessionError, "badSession")) {
-              if (badMacHandler.hasReachedLimit()) {
-                warningLog(
-                  "Limite de erros de sessão atingido. Limpando arquivos de sessão...",
-                );
-                badMacHandler.clearProblematicSessionFiles();
-                badMacHandler.resetErrorCount();
+            if (badMachHandler.handleError(sessionError, "badSession")) {
+              if (badMachHandler.hasReachedLimit()) {
+                warningLog("Limite de erros de sessão atingido. Limpando arquivos...");
+                badMachHandler.clearProblematicSessionFiles();
+                badMachHandler.resetErrorCount();
               }
             }
             break;
@@ -172,41 +82,24 @@ const code = await socket.requestPairingCode(phoneNumber.replace(/\D/g, ''));
           case DisconnectReason.connectionReplaced:
             warningLog("Conexão substituída!");
             break;
-          case DisconnectReason.multideviceMismatch:
-            warningLog("Dispositivo incompatível!");
-            break;
-          case DisconnectReason.forbidden:
-            warningLog("Conexão proibida!");
-            break;
           case DisconnectReason.restartRequired:
-            infoLog('Me reinicie por favor! Digite "npm start".');
-            break;
-          case DisconnectReason.unavailableService:
-            warningLog("Serviço indisponível!");
+            infoLog('Me reinicie por favor!');
             break;
         }
-
-        const newSocket = await connect();
-        load(newSocket);
+        connect(); // Tenta reconectar
       }
     } else if (connection === "open") {
-      clearScreenWithBanner();
       successLog("✅ Bot iniciado com sucesso!");
-      successLog("Fui conectado com sucesso!");
       infoLog("Versão do WhatsApp Web: " + version.join("."));
-      successLog(
-        `✅ Estou pronto para uso! 
-Verifique o prefixo, digitando a palavra "prefixo" no WhatsApp. 
-O prefixo padrão definido no config.js é ${PREFIX}`,
-      );
       badMacHandler.resetErrorCount();
+      load(socket);
     } else if (connection === "connecting") {
       infoLog("Conectando...");
-    } else {
-      infoLog("Atualizando conexão...");
     }
   });
 
   socket.ev.on("creds.update", saveCreds);
-
   return socket;
+}
+
+connect();
