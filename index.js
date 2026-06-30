@@ -1,28 +1,31 @@
-const { default: makeWASocket, useMultiFileAuthState, makeCacheableSignalKeyStore, delay } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
 const app = express();
 
 const port = process.env.PORT || 10000;
 
-// INTERFACE PARA O SITE
+// INTERFACE WEB (A que você gosta)
 app.get("/", (req, res) => {
     res.send(`
         <html>
+            <head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
             <body style="background:#000; color:#fff; text-align:center; padding-top:50px; font-family:sans-serif;">
-                <h1>Jackson Beatz V3</h1>
-                <p>O bot está pronto para o Cron-job.</p>
-                <input type="text" id="n" placeholder="Seu número (Ex: 244900000000)" style="padding:10px;">
-                <button onclick="g()" style="padding:10px; cursor:pointer;">GERAR CÓDIGO</button>
-                <h1 id="c" style="color:yellow; font-size:50px;"></h1>
-                <p id="status"></p>
+                <h1 style="color:#25D366;">JACKSON BEATZ V3</h1>
+                <p>Digite o número para receber a NOTIFICAÇÃO:</p>
+                <input type="number" id="num" placeholder="DDI + Número" style="padding:15px; border-radius:10px; width:250px;">
+                <br><br>
+                <button onclick="gerar()" style="padding:15px; background:#25D366; font-weight:bold; cursor:pointer; border-radius:10px;">RECEBER NOTIFICAÇÃO</button>
+                <h1 id="res" style="color:#ffff00; font-size:45px; margin-top:30px;"></h1>
+                <p id="st" style="color:#888;"></p>
                 <script>
-                    function g() {
-                        const num = document.getElementById('n').value;
-                        document.getElementById('status').innerText = 'Solicitando código...';
-                        fetch('/pairing?nh=' + num).then(r => r.json()).then(d => {
-                            document.getElementById('c').innerText = d.code || 'Erro';
-                            document.getElementById('status').innerText = d.code ? 'CÓDIGO GERADO!' : 'Erro';
+                    function gerar() {
+                        const n = document.getElementById('num').value;
+                        if(!n) return alert('Digite o número!');
+                        document.getElementById('st').innerText = 'Enviando notificação...';
+                        fetch('/pairing?nh=' + n).then(r => r.json()).then(d => {
+                            document.getElementById('res').innerText = d.code || 'Erro';
+                            document.getElementById('st').innerText = d.code ? 'NOTIFICAÇÃO ENVIADA!' : 'Erro ao enviar.';
                         });
                     }
                 </script>
@@ -31,9 +34,16 @@ app.get("/", (req, res) => {
     `);
 });
 
-async function startBot() {
-    // 1. Inicia o estado do zero (limpo)
+async function startJacksonBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+    
+    // Tenta carregar a SESSION_DATA para blindagem
+    if (process.env.SESSION_DATA && !state.creds.registered) {
+        try {
+            state.creds = JSON.parse(Buffer.from(process.env.SESSION_DATA, 'base64').toString());
+            console.log("✅ SESSION_DATA CARREGADA!");
+        } catch (e) {}
+    }
 
     const sock = makeWASocket({
         logger: pino({ level: "silent" }),
@@ -41,34 +51,33 @@ async function startBot() {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
         },
-        browser: ["Jackson Beatz V3", "Chrome", "1.0.0"]
+        // ESTA LINHA ABAIXO É O QUE FAZ A NOTIFICAÇÃO CHEGAR:
+        browser: ["Chrome (Linux)", "Chrome (Linux)", "1.0.0"],
+        printQRInTerminal: false,
+        syncFullHistory: false
     });
 
-    // Rota do site
+    // Rota de Pareamento
     app.get("/pairing", async (req, res) => {
         let nh = req.query.nh;
         try {
+            // Pequeno delay para estabilizar
+            await delay(2000);
             let code = await sock.requestPairingCode(nh);
-            res.json({ code });
-        } catch { res.json({ code: "Erro" }); }
+            res.json({ code: code });
+        } catch (e) { res.json({ error: true }); }
     });
 
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on("connection.update", (u) => {
-        const { connection, lastDisconnect } = u;
-        if (connection === "close") {
-            // Só reinicia se não for erro de logoff
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== 401;
-            if (shouldReconnect) startBot();
-        } else if (connection === "open") {
-            console.log("\n🚀 CONECTADO COM SUCESSO!");
-            
-            // --- ESTA É A KEY QUE VOCÊ VAI COPIAR ---
-            const sessionStr = Buffer.from(JSON.stringify(sock.authState.creds)).toString('base64');
-            console.log("\n================ SESSION_DATA (COPIE TUDO) ================\n");
-            console.log(sessionStr);
-            console.log("\n===========================================================\n");
+        const { connection } = u;
+        if (connection === "close") startJacksonBot();
+        if (connection === "open") {
+            console.log("\n🚀 CONECTADO!");
+            // GERA A KEY PARA VOCÊ COLAR NO RENDER
+            const str = Buffer.from(JSON.stringify(sock.authState.creds)).toString('base64');
+            console.log("\n--- COPIE PARA SESSION_DATA ---\n" + str + "\n----------------------------\n");
         }
     });
 
@@ -76,10 +85,10 @@ async function startBot() {
         const m = messages[0];
         if (!m.message || m.key.fromMe) return;
         if (m.message.conversation === "!ping") {
-            await sock.sendMessage(m.key.remoteJid, { text: "🏓 V3 Respondendo!" });
+            await sock.sendMessage(m.key.remoteJid, { text: "🏓 V3 Online!" });
         }
     });
 }
 
-app.listen(port);
-startBot();
+app.listen(port, () => console.log("Servidor Online"));
+startJacksonBot();
