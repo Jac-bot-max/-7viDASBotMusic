@@ -1,7 +1,7 @@
 {
   "name": "jackson-beatz-bot",
-  "version": "1.0.0",
-  "description": "Bot Jackson Beatz V3 - Baileys",
+  "version": "1.3.0",
+  "description": "Bot Jackson Beatz V3 - Estável",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
