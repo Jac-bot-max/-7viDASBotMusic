@@ -1,14 +1,14 @@
-const { default: makeWASocket, useMultiFileAuthState, disconnects, fetchLatestBaileysVersion, makeInMemoryStore, jidDecode } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, fetchLatestBaileysVersion, makeInMemoryStore } = require("@whiskeysockets/baileys");
 const mongoose = require('mongoose');
 const express = require('express');
 const pino = require('pino');
 
-// Servidor para o Render não dormir
+// 1. SERVIDOR PARA O RENDER E CRON-JOB
 const app = express();
-app.get('/', (req, res) => res.send('Bot Jackson Beatz V3 Online!'));
+app.get('/', (req, res) => res.send('Jackson Beatz V3 Online!'));
 app.listen(process.env.PORT || 10000);
 
-// 1. BANCO DE DADOS (MONITOR DE ADVERTÊNCIAS)
+// 2. CONEXÃO COM O BANCO DE DADOS (MEMÓRIA DO BOT)
 const MONGO_URI = 'mongodb+srv://Jackson:Bot123@cluster0.qrdsoog.mongodb.net/?appName=Cluster0';
 mongoose.connect(MONGO_URI).then(() => console.log('✅ Banco de Dados Conectado!'));
 
@@ -16,25 +16,26 @@ const User = mongoose.model('User', new mongoose.Schema({
     userId: String, groupId: String, warnings: { type: Number, default: 0 }
 }));
 
-// 2. LÓGICA DE CONEXÃO (BAILEYS)
+// 3. INÍCIO DO BOT
 async function startJacksonBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     const sock = makeWASocket({
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: true,
         auth: state,
-        browser: ["Jackson Beatz", "MacOS", "3.0.0"]
+        browser: ["Jackson Beatz V3", "Chrome", "1.0.0"]
     });
 
-    // SISTEMA DE PAREAMENTO POR CÓDIGO (Caso a sessão caia)
-    // Se você precisar logar de novo, o código de 8 dígitos aparecerá nos logs do Render
+    // --- LÓGICA DE PAREAMENTO POR CÓDIGO ---
+    // Se não estiver logado, ele vai gerar o código de 8 dígitos nos logs do Render
     if (!sock.authState.creds.registered) {
-        const phoneNumber = "SEU_NUMERO_COM_DDI_AQUI"; // Ex: 5511999999999
+        const meuNumero = "SEU_NUMERO_AQUI"; // COLOQUE SEU NUMERO COM DDI (Ex: 2449...)
         setTimeout(async () => {
-            let code = await sock.requestPairingCode(phoneNumber);
-            console.log(`🔑 CÓDIGO DE PAREAMENTO: ${code}`);
-        }, 3000);
+            try {
+                let code = await sock.requestPairingCode(meuNumero);
+                console.log(`\n\n🔑 SEU CÓDIGO DE PAREAMENTO É: ${code}\n\n`);
+            } catch (e) { console.log("Erro ao gerar código: ", e) }
+        }, 5000);
     }
 
     sock.ev.on('creds.update', saveCreds);
@@ -48,42 +49,28 @@ async function startJacksonBot() {
         const isGroup = from.endsWith('@g.us');
         const sender = msg.key.participant || from;
 
-        // --- ANTI-LINK AUTOMÁTICO ---
-        if (isGroup && body.includes('http')) {
-            const groupMetadata = await sock.groupMetadata(from);
-            const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
-            if (!admins.includes(sender)) {
-                await sock.sendMessage(from, { delete: msg.key });
-                await sock.groupParticipantsUpdate(from, [sender], "remove");
-                return;
-            }
+        // --- COMANDO MENU ---
+        if (body === "!menu") {
+            await sock.sendMessage(from, { text: "🎵 *JACKSON BEATZ V3*\n\n🛡️ !status\n🔍 !drumkit\n📢 !anuncio" });
         }
 
-        // --- COMANDOS ---
-        const prefix = "!";
-        if (!body.startsWith(prefix)) return;
-        const command = body.split(' ')[0].toLowerCase();
-
-        if (command === `${prefix}menu`) {
-            await sock.sendMessage(from, { text: "🎵 *JACKSON BEATZ V3*\n\n!status - Ver avisos\n!anuncio - Enviar aviso global\n!dica - Dica de beat" });
-        }
-
-        if (command === `${prefix}status`) {
+        // --- COMANDO STATUS (WARN DO BANCO DE DADOS) ---
+        if (body === "!status") {
             const data = await User.findOne({ userId: sender, groupId: from });
-            await sock.sendMessage(from, { text: `⚠️ Avisos: ${data ? data.warnings : 0}/3` });
+            await sock.sendMessage(from, { text: `⚠️ Advertências: ${data ? data.warnings : 0}/3` });
         }
-        
-        // Adicione aqui os outros 10 comandos que você planejou
+
+        // --- ANTI-LINK ---
+        if (isGroup && body.includes("http")) {
+            await sock.sendMessage(from, { delete: msg.key });
+            console.log("Link apagado.");
+        }
     });
 
     sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'close') {
-            console.log("Reconectando...");
-            startJacksonBot();
-        } else if (connection === 'open') {
-            console.log("🚀 BOT ONLINE E CONECTADO!");
-        }
+        const { connection } = update;
+        if (connection === 'close') startJacksonBot();
+        if (connection === 'open') console.log("🚀 BOT CONECTADO!");
     });
 }
 
