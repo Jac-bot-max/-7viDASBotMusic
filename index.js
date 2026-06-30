@@ -1,166 +1,107 @@
-const { default: makeWASocket, useMultiFileAuthState, Browsers, delay, DisconnectReason } = require('@whiskeysockets/baileys');
-const pino = require('pino');
-const express = require('express');
-const bodyParser = require('body-parser');
-const yts = require('yt-search');
-const fs = require('fs');
-const app = express();
-const port = process.env.PORT || 3000;
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode-terminal');
+const mongoose = require('mongoose');
 
-app.use(bodyParser.urlencoded({ extended: true }));
+// ==========================================
+// 1. CONEXÃO COM O BANCO DE DADOS (MONGO)
+// ==========================================
+// TROQUE 'SUA_SENHA_AQUI' PELA SENHA DO MONGODB!
+const MONGO_URI = 'mongodb+srv://Jackson:Bot123@cluster0.qrdsoog.mongodb.net/?appName=Cluster0'; 
 
-// --- PÁGINA WEB ---
-app.get('/', (req, res) => {
-    res.send(`<body style="font-family:sans-serif;text-align:center;background:#111;color:white;padding:50px;">
-        <h1>🤖 Jackson Beatz Bot Pro Ativo</h1>
-        <p>Bot gerenciando grupos e produção musical.</p>
-        <form action="/getcode" method="POST">
-            <input type="text" name="number" placeholder="25884..." required style="padding:10px;border-radius:5px;">
-            <button type="submit" style="padding:10px;background:green;color:white;border:none;border-radius:5px;">Gerar Código</button>
-        </form>
-    </body>`);
+mongoose.connect(MONGO_URI)
+    .then(() => console.log('✅ Jackson Beatz: Banco de Dados Conectado!'))
+    .catch(err => console.error('❌ Erro no MongoDB:', err));
+
+const UserSchema = new mongoose.Schema({
+    userId: String,
+    groupId: String,
+    warnings: { type: Number, default: 0 }
+});
+const User = mongoose.model('User', UserSchema);
+
+// ==========================================
+// 2. CONFIGURAÇÃO DO BOT
+// ==========================================
+const client = new Client({
+    authStrategy: new LocalAuth(), 
+    puppeteer: {
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    }
 });
 
-const dicas = [
-    "🎧 *Dica:* Use um filtro High-Pass em tudo que não for Bumbo ou Baixo para limpar a mixagem.",
-    "🎹 *Dica:* No FL Studio, use 'Alt+R' no piano roll para humanizar as notas.",
-    "🎙️ *Dica:* Grave vozes com o microfone levemente inclinado para evitar 'pufs' de ar.",
-    "🔥 *Dica:* Use Soft Clipper no Master para ganhar volume sem distorcer.",
-    "🎚️ *Dica:* Ajuste os ganhos (Gain Staging) antes de começar a colocar qualquer plugin."
-];
+client.on('qr', qr => qrcode.generate(qr, {small: true}));
+client.on('ready', () => console.log('🚀 Bot Jackson Beatz V3 Online!'));
 
-async function startBot(numberToPair, res) {
-    if (!fs.existsSync('./session_data')) fs.mkdirSync('./session_data');
-    if (process.env.SESSION_DATA && !fs.existsSync('./session_data/creds.json')) {
-        try {
-            const decoded = Buffer.from(process.env.SESSION_DATA, 'base64').toString();
-            fs.writeFileSync('./session_data/creds.json', decoded);
-        } catch (e) { console.log("Erro ao carregar SESSION_DATA"); }
+client.on('message_create', async (msg) => {
+    if (msg.fromMe) return;
+
+    const chat = await msg.getChat();
+    const contact = await msg.getContact();
+    const isGroup = chat.isGroup;
+    const body = msg.body || '';
+    const authorId = msg.author || msg.from;
+
+    // --- SEGURANÇA: ANTI-LINK ---
+    if (isGroup) {
+        const admins = chat.participants.filter(p => p.isAdmin).map(p => p.id._serialized);
+        const isSenderAdmin = admins.includes(authorId);
+        const hasLink = /(https?:\/\/[^\s]+)/g.test(body);
+
+        if (hasLink && !isSenderAdmin) {
+            await msg.delete(true);
+            await chat.removeParticipants([authorId]);
+            return; 
+        }
     }
 
-    const { state, saveCreds } = await useMultiFileAuthState('session_data');
-    
-    const sock = makeWASocket({
-        auth: state,
-        logger: pino({ level: 'silent' }),
-        browser: ["Android", "Chrome", "20.0.04"],
-        syncFullHistory: false,
-        shouldSyncHistoryMessage: () => false,
-        connectTimeoutMs: 60000,
-        markOnlineOnConnect: true
-    });
-
-    sock.ev.on('creds.update', saveCreds);
-
-    // --- BOAS-VINDAS ---
-    sock.ev.on('group-participants.update', async (anu) => {
-        if (anu.action === 'add') {
-            const user = anu.participants[0];
-            await sock.sendMessage(anu.id, { 
-                text: `Olá @${user.split('@')[0]}, bem-vindo ao grupo *Jackson Beatz*! 🎹🔥\n\nDigite *!menu* para ver o que eu faço.`,
-                mentions: [user]
-            });
+    // --- FILTRO DE VÍDEO (ADVERTÊNCIA) ---
+    if (isGroup && msg.hasMedia && msg.type === 'video') {
+        const isBeat = body.toLowerCase().includes('beat') || body.toLowerCase().includes('instrumental');
+        if (!isBeat) {
+            await aplicarAviso(authorId, chat.id._serialized, msg, contact, chat);
         }
-    });
+    }
 
-    sock.ev.on('connection.update', (u) => {
-        const { connection, lastDisconnect } = u;
-        if (connection === 'open') console.log('✅ BOT JACKSON BEATZ ONLINE!');
-        if (connection === 'close') {
-            if (lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut) startBot();
-        }
-    });
+    // --- COMANDOS ---
+    const prefix = "!";
+    if (!body.startsWith(prefix)) return;
+    const command = body.split(' ')[0].toLowerCase();
+    const args = body.slice(command.length).trim();
 
-    sock.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
+    switch (command) {
+        case `${prefix}menu`:
+            msg.reply(`🎵 *JACKSON BEATZ V3* 🎵\n\n🛡️ *Anti-Link:* Ativado\n⚠️ *Avisos:* !status\n🔍 *Drum Kits:* !drumkit [nome]\n💡 *Dica:* !dica`);
+            break;
 
-        const chat = msg.key.remoteJid;
-        const isGroup = chat.endsWith('@g.us');
-        const texto = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase().trim();
+        case `${prefix}status`:
+            const data = await User.findOne({ userId: authorId, groupId: chat.id._serialized });
+            msg.reply(`⚠️ @${contact.id.user}, você tem *${data ? data.warnings : 0}/3* advertências.`, null, { mentions: [contact] });
+            break;
 
-        // --- COMANDOS DO BOT ---
-
-        // 1. MENU COMPLETO
-        if (texto === '!menu') {
-            const menu = `🤖 *JACKSON BEATZ PRO*\n\n` +
-                         `*🎧 PRODUÇÃO MUSICAL:*\n` +
-                         `👉 *!dica* - Dica aleatória de produção.\n` +
-                         `👉 *!foto [nome]* - Capa e info de música.\n\n` +
-                         `*👮 ADMINISTRAÇÃO:*\n` +
-                         `👉 *!ban* - Responda a alguém para banir.\n` +
-                         `👉 *!promover* - Responda para dar ADM.\n` +
-                         `👉 *!rebaixar* - Responda para tirar ADM.\n` +
-                         `👉 *!marcar* - Chama todos do grupo.\n` +
-                         `👉 *!link* - Pega o link do grupo.\n\n` +
-                         `*🛠️ UTILITÁRIOS:*\n` +
-                         `👉 *!ping* - Testar velocidade.\n` +
-                         `👉 *!regras* - Regras do grupo.\n\n` +
-                         `🚫 *Anti-Link Ativado*`;
-            await sock.sendMessage(chat, { text: menu }, { quoted: msg });
-        }
-
-        // 2. COMANDO !DICA
-        if (texto === '!dica') {
-            const d = dicas[Math.floor(Math.random() * dicas.length)];
-            await sock.sendMessage(chat, { text: d }, { quoted: msg });
-        }
-
-        // 3. BUSCAR FOTO YOUTUBE
-        if (texto.startsWith('!foto')) {
-            const busca = texto.replace('!foto', '').trim();
-            if (!busca) return sock.sendMessage(chat, { text: 'Diga o nome da música!' });
-            const r = await yts(busca);
-            const vid = r.videos[0];
-            if (vid) await sock.sendMessage(chat, { image: { url: vid.thumbnail }, caption: `🎬 *${vid.title}*\n⏱️ ${vid.timestamp}` });
-        }
-
-        // 4. BANIR / PROMOVER / REBAIXAR (SÓ ADM)
-        if (isGroup && (texto === '!ban' || texto === '!promover' || texto === '!rebaixar')) {
-            const citado = msg.message.extendedTextMessage?.contextInfo?.participant;
-            if (!citado) return sock.sendMessage(chat, { text: '❌ Responda à mensagem de alguém!' });
+        case `${prefix}drumkit`:
+            if (!args) return msg.reply("❌ Digite o gênero. Ex: !drumkit Kizomba");
+            msg.reply(`🔎 Buscando Drum Kits de *${args}*...\n\nResultados:\n1️⃣ YouTube: https://www.youtube.com/results?search_query=drum+kit+${args.replace(/ /g, '+')}+download`);
+            break;
             
-            if (texto === '!ban') {
-                await sock.groupParticipantsUpdate(chat, [citado], 'remove');
-                await sock.sendMessage(chat, { text: '👤 Usuário removido!' });
-            } else if (texto === '!promover') {
-                await sock.groupParticipantsUpdate(chat, [citado], 'promote');
-                await sock.sendMessage(chat, { text: '✅ Agora é Administrador!' });
-            } else if (texto === '!rebaixar') {
-                await sock.groupParticipantsUpdate(chat, [citado], 'demote');
-                await sock.sendMessage(chat, { text: '❌ Não é mais Administrador.' });
-            }
-        }
-
-        // 5. MARCAR TODOS
-        if (texto === '!marcar' && isGroup) {
-            const metadata = await sock.groupMetadata(chat);
-            const participantes = metadata.participants.map(v => v.id);
-            await sock.sendMessage(chat, { text: '📣 *ATENÇÃO TODOS!*', mentions: participantes });
-        }
-
-        // 6. LINK DO GRUPO
-        if (texto === '!link' && isGroup) {
-            const link = await sock.groupInviteCode(chat);
-            await sock.sendMessage(chat, { text: `🔗 https://chat.whatsapp.com/${link}` });
-        }
-
-        // 7. REGRAS
-        if (texto === '!regras') {
-            await sock.sendMessage(chat, { text: "⚠️ *REGRAS:* \n1. Proibido Links\n2. Respeite os produtores\n3. Foco em Beats!" });
-        }
-
-        // --- ANTI-LINK ---
-        if (isGroup && texto.includes('chat.whatsapp.com/')) {
-            await sock.sendMessage(chat, { delete: msg.key });
-            await sock.sendMessage(chat, { text: "🚫 *Links são proibidos!*" });
-        }
-    });
-}
-
-app.post('/getcode', (req, res) => {
-    startBot(req.body.number.replace(/\D/g, ''), res);
+        case `${prefix}dica`:
+            msg.reply("💡 Jackson Beatz Dica: Mantenha seus instrumentais organizados por BPM para facilitar as vendas!");
+            break;
+    }
 });
 
-app.listen(port, () => console.log(`Porta ${port}`));
-startBot();
+async function aplicarAviso(userId, groupId, msg, contact, chat) {
+    let user = await User.findOne({ userId, groupId });
+    if (!user) user = new User({ userId, groupId, warnings: 0 });
+    user.warnings += 1;
+    await user.save();
+
+    if (user.warnings >= 3) {
+        msg.reply(`🚨 @${contact.id.user} expulso por excesso de avisos!`, null, { mentions: [contact] });
+        await chat.removeParticipants([userId]);
+        await User.deleteOne({ userId, groupId });
+    } else {
+        msg.reply(`⚠️ @${contact.id.user}, vídeo proibido! Aviso ${user.warnings}/3.`, null, { mentions: [contact] });
+    }
+}
+
+client.initialize();
