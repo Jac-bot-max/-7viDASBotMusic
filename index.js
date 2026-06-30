@@ -1,45 +1,20 @@
-import express from 'express'; // ADICIONADO PARA O RENDER
+import express from 'express';
 import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
-  isJidBroadcast,
-  isJidNewsletter,
-  isJidStatusBroadcast,
   useMultiFileAuthState,
+  delay // Importante para o pareamento
 } from "baileys";
-import NodeCache from "node-cache";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import pino from "pino";
+import fs from "node:fs";
 import { PREFIX, TEMP_DIR } from "./config.js";
 import { load } from "./loader.js";
-import { badMachHandler } from "./utils/badMachHandler.js";
-import { onlyNumbers, question } from "./utils/index.js";
-import {
-  bannerLog,
-  errorLog,
-  infoLog,
-  successLog,
-  warningLog,
-} from "./utils/logger.js";
 
-// === INICIO DA CONFIGURAÇÃO PARA O RENDER E CRON-JOB ===
+// Servidor para o Render e Cron-job não deixarem o bot dormir
 const app = express();
 const port = process.env.PORT || 3000;
-app.get('/', (req, res) => res.send('Bot de WhatsApp 7vidas Online!'));
-app.listen(port, () => console.log(`Servidor HTTP rodando na porta ${port}`));
-// === FIM DA CONFIGURAÇÃO ===
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-if (!fs.existsSync(TEMP_DIR)) {
-  fs.mkdirSync(TEMP_DIR, { recursive: true });
-}
-
-// ... (Aqui continua o resto do seu código de conexão que você enviou)
-// Abaixo está a parte que você me mandou por último, integrada:
+app.get('/', (req, res) => res.send('Bot 7vidas Online! Aguardando pareamento...'));
+app.listen(port, () => console.log(`Servidor rodando na porta ${port}`));
 
 async function connect() {
   const { state, saveCreds } = await useMultiFileAuthState('auth_info');
@@ -47,54 +22,42 @@ async function connect() {
 
   const socket = makeWASocket({
     version,
-    printQRInTerminal: true,
+    printQRInTerminal: false, // Desativamos o QR Code
     auth: state,
     logger: pino({ level: "silent" }),
   });
+
+  // --- LÓGICA DO CÓDIGO DE PAREAMENTO ---
+  // Se não estiver conectado e houver um número configurado
+  if (!socket.authState.creds.registered) {
+    const numero = process.env.NUMERO_BOT; // Ele vai pegar o número que você salvou no Render
+
+    if (numero) {
+        setTimeout(async () => {
+            try {
+                let code = await socket.requestPairingCode(numero);
+                code = code?.match(/.{1,4}/g)?.join("-") || code;
+                console.log("---------------------------------------");
+                console.log(`SEU CÓDIGO DE PAREAMENTO É: ${code}`);
+                console.log("---------------------------------------");
+            } catch (error) {
+                console.error("Erro ao gerar código de pareamento:", error);
+            }
+        }, 5000); // Espera 5 segundos para o socket estabilizar
+    } else {
+        console.log("ERRO: Você não configurou a variável NUMERO_BOT no Render!");
+    }
+  }
 
   socket.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect } = update;
 
     if (connection === "close") {
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
-
-      if (statusCode === DisconnectReason.loggedOut) {
-        errorLog("Bot desconectado!");
-      } else {
-        switch (statusCode) {
-          case DisconnectReason.badSession:
-            warningLog("Sessão inválida!");
-            const sessionError = new Error("Bad session detected");
-            if (badMachHandler.handleError(sessionError, "badSession")) {
-              if (badMachHandler.hasReachedLimit()) {
-                warningLog("Limite de erros de sessão atingido. Limpando arquivos...");
-                badMachHandler.clearProblematicSessionFiles();
-                badMachHandler.resetErrorCount();
-              }
-            }
-            break;
-          case DisconnectReason.connectionClosed:
-            warningLog("Conexão fechada!");
-            break;
-          case DisconnectReason.connectionLost:
-            warningLog("Conexão perdida!");
-            break;
-          case DisconnectReason.connectionReplaced:
-            warningLog("Conexão substituída!");
-            break;
-          case DisconnectReason.restartRequired:
-            infoLog('Me reinicie por favor!');
-            break;
-        }
-        connect(); // Tenta reconectar
-      }
+      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+      if (shouldReconnect) connect();
     } else if (connection === "open") {
-      successLog("✅ Bot iniciado com sucesso!");
-      infoLog("Versão do WhatsApp Web: " + version.join("."));
-      badMacHandler.resetErrorCount();
+      console.log("✅ BOT CONECTADO COM SUCESSO!");
       load(socket);
-    } else if (connection === "connecting") {
-      infoLog("Conectando...");
     }
   });
 
