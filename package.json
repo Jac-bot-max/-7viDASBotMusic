@@ -1,15 +1,15 @@
 {
   "name": "jackson-beatz-bot",
   "version": "1.0.0",
-  "description": "Bot WhatsApp",
+  "description": "Bot WhatsApp V3",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "latest",
-    "pino": "latest",
-    "express": "latest",
-    "yt-search": "latest"
+    "whatsapp-web.js": "latest",
+    "qrcode-terminal": "latest",
+    "mongoose": "latest",
+    "express": "latest"
   }
 }
