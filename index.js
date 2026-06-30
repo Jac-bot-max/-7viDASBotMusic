@@ -1,27 +1,31 @@
-const { default: makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, delay, makeCacheableSignalKeyStore, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const express = require("express");
 const app = express();
 
 const port = process.env.PORT || 10000;
 
-// INTERFACE WEB (PARA O CRON-JOB E PARA GERAR O CÓDIGO)
+// INTERFACE WEB - CONFIGURADA PARA MOÇAMBIQUE
 app.get("/", (req, res) => {
     res.send(`
         <html>
+            <head><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
             <body style="background:#000; color:#fff; text-align:center; padding-top:50px; font-family:sans-serif;">
-                <h1 style="color:#00ff00;">JACKSON BEATZ V3 - NOVO PROJETO</h1>
-                <p>1. Digite seu número com DDI (Ex: 244900000000)<br>2. Clique no botão e aguarde a NOTIFICAÇÃO no seu WhatsApp.</p>
-                <input type="number" id="num" placeholder="DDI + Número" style="padding:15px; border-radius:10px; width:250px; font-size:18px;">
+                <h1 style="color:#00ff00;">JACKSON BEATZ V3 - MOÇAMBIQUE</h1>
+                <p>Digite seu número com DDI 258 (Ex: 258848786486):</p>
+                <input type="number" id="num" placeholder="258xxxxxxxx" style="padding:15px; border-radius:10px; width:280px; font-size:18px;">
                 <br><br>
                 <button onclick="gerar()" style="padding:15px 30px; background:#00ff00; font-weight:bold; cursor:pointer; border-radius:10px;">RECEBER NOTIFICAÇÃO</button>
                 <h1 id="res" style="color:#ffff00; font-size:40px; margin-top:30px;"></h1>
+                <p id="st" style="color:#888;"></p>
                 <script>
                     function gerar() {
                         const n = document.getElementById('num').value;
-                        if(!n) return alert('Digite o número!');
+                        if(!n) return alert('Por favor, digite o número!');
+                        document.getElementById('st').innerText = 'A enviar notificação para Moçambique...';
                         fetch('/pairing?nh=' + n).then(r => r.json()).then(d => {
                             document.getElementById('res').innerText = d.code || 'Erro';
+                            document.getElementById('st').innerText = d.code ? 'NOTIFICAÇÃO ENVIADA! Verifique o seu WhatsApp.' : 'Erro ao gerar.';
                         });
                     }
                 </script>
@@ -32,51 +36,51 @@ app.get("/", (req, res) => {
 
 async function startBot() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
-
-    // Se você colar a SESSION_DATA no Render depois, o bot já nasce logado
-    if (process.env.SESSION_DATA && !state.creds.registered) {
-        try {
-            state.creds = JSON.parse(Buffer.from(process.env.SESSION_DATA, 'base64').toString());
-            console.log("✅ SESSION_DATA CARREGADA!");
-        } catch (e) {}
-    }
+    const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
+        version,
         logger: pino({ level: "silent" }),
         auth: {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: "silent" })),
         },
-        // NAVEGADOR PARA FORÇAR NOTIFICAÇÃO NO CELULAR
-        browser: ["Ubuntu", "Chrome", "20.0.04"]
+        // NAVEGADOR PARA MOÇAMBIQUE (Simulando Safari no Mac - Muito estável)
+        browser: ["Mac OS", "Safari", "15.0"],
+        printQRInTerminal: false,
+        syncFullHistory: false
     });
 
     app.get("/pairing", async (req, res) => {
+        let nh = req.query.nh;
         try {
-            await delay(1500);
-            let code = await sock.requestPairingCode(req.query.nh);
-            res.json({ code });
-        } catch { res.json({ error: true }); }
+            await delay(2500); // Espera o socket estabilizar
+            let code = await sock.requestPairingCode(nh);
+            res.json({ code: code });
+        } catch (e) { res.json({ error: true }); }
     });
 
     sock.ev.on("creds.update", saveCreds);
 
     sock.ev.on("connection.update", (u) => {
-        if (u.connection === "close") startBot();
-        if (u.connection === "open") {
-            console.log("\n🚀 CONECTADO COM SUCESSO!");
-            // ESTA É A KEY QUE VOCÊ VAI COPIAR PARA A SESSION_DATA
+        const { connection } = u;
+        if (connection === "close") startBot();
+        if (connection === "open") {
+            console.log("\n🚀 BOT JACKSON BEATZ CONECTADO!");
+            // GERA A STRING GIGANTE PARA BLINDAR NO RENDER
             const str = Buffer.from(JSON.stringify(sock.authState.creds)).toString('base64');
-            console.log("\n--- COPIE O TEXTO ABAIXO E SALVE NA SESSION_DATA ---\n" + str + "\n----------------------------\n");
+            console.log("\n--- COPIE ESTA KEY PARA SESSION_DATA ---\n" + str + "\n----------------------------\n");
         }
     });
 
     sock.ev.on("messages.upsert", async ({ messages }) => {
-        if (messages[0].message?.conversation === "!ping") {
-            await sock.sendMessage(messages[0].key.remoteJid, { text: "🏓 V3 On no Novo Projeto!" });
+        const m = messages[0];
+        if (!m.message || m.key.fromMe) return;
+        if (m.message.conversation === "!ping") {
+            await sock.sendMessage(m.key.remoteJid, { text: "🏓 Pong! V3 Moçambique On!" });
         }
     });
 }
 
-app.listen(port);
+app.listen(port, () => console.log("Servidor Online"));
 startBot();
