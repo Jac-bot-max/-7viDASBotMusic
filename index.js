@@ -1,80 +1,68 @@
 import express from 'express';
-import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState } from "baileys";
+import makeWASocket, {
+  DisconnectReason,
+  fetchLatestBaileysVersion,
+  useMultiFileAuthState,
+  delay // Importante para o pareamento
+} from "baileys";
 import pino from "pino";
-import fs from "fs";
-import yts from "yt-search";
+import fs from "node:fs";
+import { PREFIX, TEMP_DIR } from "./config.js";
+import { load } from "./loader.js";
 
+// Servidor para o Render e Cron-job não deixarem o bot dormir
 const app = express();
-app.get('/', (req, res) => res.send('Jackson Beatz V3 - Gerador de Sessão Ativo!'));
-app.listen(process.env.PORT || 3000);
+const port = process.env.PORT || 3000;
+app.get('/', (req, res) => res.send('Bot 7vidas Online! Aguardando pareamento...'));
+app.listen(port, () => console.log(`Servidor rodando na porta ${port}`));
 
-async function startBot() {
-    // Tenta carregar a sessão se ela já existir no Render
-    const sessionID = process.env.SESSION_ID;
-    if (sessionID && !fs.existsSync('./session_data/creds.json')) {
-        if (!fs.existsSync('./session_data')) fs.mkdirSync('./session_data');
-        const decodedSession = Buffer.from(sessionID, 'base64').toString('utf-8');
-        fs.writeFileSync('./session_data/creds.json', decodedSession);
-    }
+async function connect() {
+  const { state, saveCreds } = await useMultiFileAuthState('auth_info');
+  const { version } = await fetchLatestBaileysVersion();
 
-    const { state, saveCreds } = await useMultiFileAuthState('session_data');
-    const { version } = await fetchLatestBaileysVersion();
+  const socket = makeWASocket({
+    version,
+    printQRInTerminal: false, // Desativamos o QR Code
+    auth: state,
+    logger: pino({ level: "silent" }),
+  });
 
-    const socket = makeWASocket({
-        version,
-        printQRInTerminal: false,
-        auth: state,
-        logger: pino({ level: "silent" }),
-        shouldSyncHistoryMessage: () => false,
-    });
+  // --- LÓGICA DO CÓDIGO DE PAREAMENTO ---
+  // Se não estiver conectado e houver um número configurado
+  if (!socket.authState.creds.registered) {
+    const numero = process.env.NUMERO_BOT; // Ele vai pegar o número que você salvou no Render
 
-    // Se não tiver login, gera o código de 8 dígitos nos Logs do Render
-    if (!socket.authState.creds.registered) {
-        const numero = process.env.NUMERO_BOT;
-        if (numero) {
-            setTimeout(async () => {
+    if (numero) {
+        setTimeout(async () => {
+            try {
                 let code = await socket.requestPairingCode(numero);
                 code = code?.match(/.{1,4}/g)?.join("-") || code;
-                console.log(`\nCÓDIGO DE PAREAMENTO: ${code}\n`);
-            }, 7000);
-        }
+                console.log("---------------------------------------");
+                console.log(`SEU CÓDIGO DE PAREAMENTO É: ${code}`);
+                console.log("---------------------------------------");
+            } catch (error) {
+                console.error("Erro ao gerar código de pareamento:", error);
+            }
+        }, 5000); // Espera 5 segundos para o socket estabilizar
+    } else {
+        console.log("ERRO: Você não configurou a variável NUMERO_BOT no Render!");
     }
+  }
 
-    socket.ev.on("creds.update", saveCreds);
+  socket.ev.on("connection.update", async (update) => {
+    const { connection, lastDisconnect } = update;
 
-    socket.ev.on("connection.update", (update) => {
-        const { connection } = update;
-        if (connection === "close") startBot();
-        if (connection === "open") console.log("✅ BOT CONECTADO!");
-    });
+    if (connection === "close") {
+      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+      if (shouldReconnect) connect();
+    } else if (connection === "open") {
+      console.log("✅ BOT CONECTADO COM SUCESSO!");
+      load(socket);
+    }
+  });
 
-    socket.ev.on("messages.upsert", async (chatUpdate) => {
-        const msg = chatUpdate.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-        const from = msg.key.remoteJid;
-        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
-
-        // --- COMANDO MÁGICO PARA GERAR A CHAVE ---
-        if (text === "!key") {
-            try {
-                const creds = fs.readFileSync('./session_data/creds.json');
-                const sessionString = Buffer.from(creds).toString('base64');
-                await socket.sendMessage(from, { text: "Aqui está a sua nova SESSION_ID para colar no Render:\n\n" + sessionString });
-            } catch (e) {
-                await socket.sendMessage(from, { text: "Erro ao gerar chave. O bot ainda está sincronizando." });
-            }
-        }
-
-        // COMANDO !FOTO
-        if (text.startsWith("!foto")) {
-            const termo = text.slice(6).trim();
-            const search = await yts(termo);
-            const video = search.videos[0];
-            if (video) {
-                await socket.sendMessage(from, { image: { url: video.thumbnail }, caption: `*Resultado:* ${video.title}` });
-            }
-        }
-    });
+  socket.ev.on("creds.update", saveCreds);
+  return socket;
 }
 
-startBot();
+connect();
