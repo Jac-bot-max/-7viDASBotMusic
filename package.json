@@ -1,12 +1,4 @@
-{
-  "name": "bot-7vidas",
-  "type": "module",
-  "main": "index.js",
-  "scripts": { "start": "node index.js" },
-  "dependencies": {
-    "baileys": "latest",
-    "express": "^4.18.2",
-    "pino": "latest",
-    "yt-search": "latest"
-  }
+"dependencies": {
+  "@whiskeysockets/baileys": "^6.5.0",
+  "yt-search": "^2.11.1"
 }
