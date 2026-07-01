@@ -6,10 +6,9 @@ import fs from "fs";
 
 // --- SERVIDOR PARA MANTER ONLINE ---
 const app = express();
-app.get('/', (req, res) => res.send('@7viDASBotMusic PRO Ativo'));
+app.get('/', (req, res) => res.send('@7viDASBotMusic PRO - Sistema Inteligente'));
 app.listen(process.env.PORT || 3000);
 
-// BANCO DE DADOS DE ADVERTÊNCIAS (EM MEMÓRIA)
 const warnDB = new Map();
 
 async function startBot() {
@@ -40,7 +39,7 @@ async function startBot() {
                 try {
                     let ppUrl;
                     try { ppUrl = await socket.profilePictureUrl(jid, 'image'); } catch { ppUrl = 'https://i.imgur.com/6V69j9X.png'; }
-                    const welcome = `╔═════ ⚪ *WELCOME* ⚪ ═════╗\n║\n║ 👋 Olá, @${jid.split('@')[0]}!\n║ Bem-vindo ao *@7viDASBotMusic*.\n║ 👑 ADM: *JACKSON@7VIDAS*\n║\n║ 🔵 Use *!menu* para começar.\n║\n╚══════════════════════════╝`;
+                    const welcome = `╔══════ ⚪ *WELCOME* ⚪ ══════╗\n║\n║ 👋 Olá, @${jid.split('@')[0]}!\n║ Bem-vindo ao *@7viDASBotMusic*.\n║ 👑 ADM: *JACKSON@7VIDAS*\n║\n║ 🔵 Use *!menu* para navegar.\n║\n╚════════════════════════════╝`;
                     await socket.sendMessage(anu.id, { image: { url: ppUrl }, caption: welcome, mentions: [jid] });
                 } catch (e) { console.log(e); }
             }
@@ -50,7 +49,7 @@ async function startBot() {
     socket.ev.on("connection.update", (update) => {
         const { connection } = update;
         if (connection === "close") startBot();
-        if (connection === "open") console.log("✅ @7viDASBotMusic: ONLINE E PRONTO");
+        if (connection === "open") console.log("✅ @7viDASBotMusic: ONLINE - LÓGICA DE ESPAÇO ATIVA");
     });
 
     socket.ev.on("messages.upsert", async (chatUpdate) => {
@@ -61,7 +60,7 @@ async function startBot() {
             const from = msg.key.remoteJid;
             const isGroup = from.endsWith('@g.us');
             const type = Object.keys(msg.message)[0];
-            const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || "").toLowerCase().trim();
+            const textRaw = (msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || "").trim();
             const sender = msg.key.participant || msg.key.remoteJid;
 
             if (!isGroup) return;
@@ -71,22 +70,24 @@ async function startBot() {
             const isBotAdmin = admins.includes(socket.user.id.split(':')[0] + '@s.whatsapp.net');
             const isSenderAdmin = admins.includes(sender);
 
-            // --- REAÇÃO PARA ÁUDIO (INSTRUMENTAL) ---
+            // --- REAÇÃO INSTRUMENTAL ---
             if (type === 'audioMessage') {
                 await socket.sendMessage(from, { react: { text: "✅", key: msg.key } });
                 await socket.sendMessage(from, { text: "⚪ *[ @7viDASBotMusic ]* ⚪\n\n🔵 _Instrumental recebido. JACKSON@7VIDAS vai analisar._" }, { quoted: msg });
                 return;
             }
 
-            // --- ANALISADOR DE COMANDOS ---
-            if (!text.startsWith('!')) return;
-            const args = text.split(" ");
-            const command = args[0];
-            const query = text.replace(command, "").trim();
+            // --- LÓGICA DE ESPAÇO DE LIVRAMENTO (SMART PARSER) ---
+            if (!textRaw.startsWith('!')) return;
+            
+            // Separa o comando da busca, não importa quantos espaços existam
+            const args = textRaw.slice(1).trim().split(/\s+/);
+            const command = args.shift().toLowerCase(); // Pega a primeira palavra sem o !
+            const query = args.join(" "); // Junta o resto com espaço único
 
             // 1. MENU
-            if (command === "!menu") {
-                const menu = `╔════ 🔵 *@7viDASBotMusic* 🔵 ════╗
+            if (command === "menu") {
+                const menu = `╔══════ 🔵 *@7viDASBotMusic* 🔵 ══════╗
 ║
 ║ 🔴 *ADMINISTRAÇÃO*
 ║ ◽ !warn | !unwarn | !ban
@@ -100,60 +101,64 @@ async function startBot() {
 ║ 🔵 *STATUS*
 ║ ◽ !ping - Velocidade
 ║
-╚══════════════════════════╝`;
+║ 👑 ADM: JACKSON@7VIDAS
+╚══════════════════════════════╝`;
                 await socket.sendMessage(from, { text: menu });
             }
 
             // 2. PING
-            if (command === "!ping") {
-                await socket.sendMessage(from, { text: "🛰️ *Latência:* Estável\n🤖 *Bot:* @7viDASBotMusic Online" });
+            if (command === "ping") {
+                const start = Date.now();
+                await socket.sendMessage(from, { text: `🔵 *LATÊNCIA:* ${Date.now() - start}ms\n⚪ *BOT:* @7viDASBotMusic\n🔴 *MODO:* Otimizado` });
             }
 
-            // 3. BUSCA YOUTUBE
-            if (command === "!yt") {
-                if (!query) return socket.sendMessage(from, { text: "🔍 Digite o que buscar!" });
-                const s = await yts(query);
-                const v = s.videos[0];
-                await socket.sendMessage(from, { text: `📺 *YouTube:* ${v.title}\n🔗 ${v.url}\n👤 *Canal:* ${v.author.name}` });
-            }
-
-            // 4. BUSCA FOTO (Thumbnail)
-            if (command === "!foto") {
-                if (!query) return;
+            // 3. YOUTUBE (COM LIVRAMENTO DE ESPAÇO)
+            if (command === "yt") {
+                if (!query) return socket.sendMessage(from, { text: "❓ _Diga o que buscar. Ex: !yt amapiano_" });
                 const s = await yts(query);
                 if (s.videos[0]) {
-                    await socket.sendMessage(from, { image: { url: s.videos[0].thumbnail }, caption: `🔵 *Capa:* ${s.videos[0].title}` });
+                    const v = s.videos[0];
+                    await socket.sendMessage(from, { text: `📺 *YouTube Search*\n\n🔵 *Título:* ${v.title}\n⚪ *Link:* ${v.url}\n🔴 *Canal:* ${v.author.name}\n🔗 *Canal Link:* ${v.author.url}` });
                 }
             }
 
-            // 5. DRUMS E VSTS
-            if (command === "!drums" || command === "!vst") {
-                const s = await yts(`${query} ${command.slice(1)} pack free`);
+            // 4. FOTO
+            if (command === "foto") {
+                if (!query) return;
+                const s = await yts(query);
+                if (s.videos[0]) {
+                    await socket.sendMessage(from, { image: { url: s.videos[0].thumbnail }, caption: `🔵 *Thumbnail:* ${s.videos[0].title}` });
+                }
+            }
+
+            // 5. DRUMS / VST / SOFTWARE
+            if (command === "drums" || command === "vst" || command === "flpc" || command === "flmobile") {
+                const q = query || (command === "flpc" ? "fl studio pc" : "drum pack");
+                const s = await yts(q + " download free");
                 await socket.sendMessage(from, { text: `🥁 *ENCONTRADO:* \n\n${s.videos[0].title}\n🔗 ${s.videos[0].url}` });
             }
 
-            // 6. ADM - WARN
-            if (command === "!warn" && isSenderAdmin && isBotAdmin) {
+            // 6. ADM - WARN / BAN / LINK
+            if (command === "warn" && isSenderAdmin && isBotAdmin) {
                 const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.[0] || msg.message.extendedTextMessage?.contextInfo?.participant;
                 if (!target) return;
                 let count = (warnDB.get(target) || 0) + 1;
                 warnDB.set(target, count);
                 if (count >= 3) {
                     await socket.groupParticipantsUpdate(from, [target], "remove");
-                    await socket.sendMessage(from, { text: "🔴 Usuário banido: 3 advertências." });
+                    await socket.sendMessage(from, { text: "🔴 *BANIDO:* 3 Advertências atingidas." });
                     warnDB.delete(target);
                 } else {
                     await socket.sendMessage(from, { text: `⚠️ *AVISO [${count}/3]* para @${target.split('@')[0]}`, mentions: [target] });
                 }
             }
 
-            // 7. ADM - LINK
-            if (command === "!link" && isBotAdmin) {
+            if (command === "link" && isBotAdmin) {
                 const code = await socket.groupInviteCode(from);
                 await socket.sendMessage(from, { text: `🔗 *LINK DO GRUPO:* https://chat.whatsapp.com/${code}` });
             }
 
-        } catch (e) { console.log("Erro no comando:", e); }
+        } catch (e) { console.log("Erro:", e); }
     });
 }
 
