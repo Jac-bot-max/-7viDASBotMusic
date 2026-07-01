@@ -62,8 +62,6 @@ async function startBot() {
                 await socket.sendMessage(from, { text: "Aqui está a sua nova SESSION_ID para colar no Render:\n\n" + sessionString });
             } catch (e) {
                 await socket.sendMessage(from, { text: "Erro ao gerar chave. O bot ainda está sincronizando." });
-            }
-        }
 
         // COMANDO !FOTO
         if (text.startsWith("!foto")) {
