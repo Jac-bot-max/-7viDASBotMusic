@@ -74,7 +74,65 @@ async function startBot() {
                 await socket.sendMessage(from, { image: { url: video.thumbnail }, caption: `*Resultado:* ${video.title}` });
             }
         }
-    });
-}
+    socket.ev.on("messages.upsert", async (chatUpdate) => {
+
+    const msg = chatUpdate.messages[0];
+    const from = msg.key.remoteJid;
+    const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
+
+    // =========================
+    // COMANDO !FOTO (EXEMPLO)
+    // =========================
+    if (text.startsWith("!foto")) {
+        await socket.sendMessage(from, {
+            text: "📸 Foto recebida!"
+        });
+    }
+
+    // =========================
+    // COMANDO !PING
+    // =========================
+    if (text === "!ping") {
+        await socket.sendMessage(from, {
+            text: "🏓 Pong!"
+        });
+    }
+
+    // =========================
+    // COMANDO !MENU
+    // =========================
+    if (text === "!menu") {
+        await socket.sendMessage(from, {
+            text:
+`📌 MENU DO BOT
+
+!ping - testar bot
+!menu - ver comandos
+!ban - remover membro`
+        });
+    }
+
+    // =========================
+    // COMANDO !BAN
+    // =========================
+    if (text.startsWith("!ban")) {
+
+        const user = msg.message?.extendedTextMessage?.contextInfo?.participant;
+
+        if (!user) {
+            await socket.sendMessage(from, {
+                text: "❌ Responde a mensagem de alguém para banir"
+            });
+            return;
+        }
+
+        await socket.groupParticipantsUpdate(from, [user], "remove");
+
+        await socket.sendMessage(from, {
+            text: "🚫 Usuário removido"
+        });
+    }
+
+}); // 🔒 FECHO FINAL DO BOT (NÃO MEXER)
 
 startBot();
