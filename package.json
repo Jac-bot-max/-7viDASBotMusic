@@ -1,4 +1,13 @@
-"dependencies": {
-  "@whiskeysockets/baileys": "^6.5.0",
-  "yt-search": "^2.11.1"
+{
+  "name": "7vidasbotmusic",
+  "version": "1.0.0",
+  "description": "Bot de música e moderação para WhatsApp",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.5.0",
+    "yt-search": "^2.11.1"
+  }
 }
