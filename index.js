@@ -74,13 +74,7 @@ async function startBot() {
                 await socket.sendMessage(from, { image: { url: video.thumbnail }, caption: `*Resultado:* ${video.title}` });
             }
         }
-    socket.ev.on("messages.upsert", async (chatUpdate) => {
-
-    const msg = chatUpdate.messages[0];
-    const from = msg.key.remoteJid;
-    const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
-
-    // =========================
+    
     // COMANDO !FOTO (EXEMPLO)
     // =========================
     if (text.startsWith("!foto")) {
