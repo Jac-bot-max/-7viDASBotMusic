@@ -1,160 +1,170 @@
-import express from 'express';
-import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState, delay } from "baileys";
-import pino from "pino";
-import yts from "yt-search";
-import fs from "fs";
-
-const app = express();
-app.get('/', (req, res) => res.send('@7viDASBotMusic PRO - Protocolo Baileys Ativado'));
-app.listen(process.env.PORT || 3000);
+const { delay } = require('@whiskeysockets/baileys');
+const yts = require('yt-search'); 
 
 const advertencias = new Map();
+const respondidos = new Set();
 
-async function startBot() {
-    if (!fs.existsSync('./session_data')) fs.mkdirSync('./session_data');
-    const sessionID = process.env.SESSION_ID;
+const REGRAS_GRUPO = `📜 *REGRAS DO GRUPO (PRODUÇÃO MUSICAL)* 📜\n\n` +
+                     `1️⃣ Proibido o envio de QUALQUER tipo de link não autorizado.\n` +
+                     `2️⃣ Proibido fotos fora do tema do grupo (Apenas Beats/Música).\n` +
+                     `3️⃣ Proibido áudios e gravações aleatórias sem relação com Beats.\n` +
+                     `4️⃣ Respeite todos os produtores e artistas no grupo.\n\n` +
+                     `⚠️ *O desrespeito destas regras resulta em BAN após 3 avisos!*`;
+
+socket.ev.on('group-participants.update', async (update) => {
+    const { id, participants, action } = update;
     
-    if (sessionID && !fs.existsSync('./session_data/creds.json')) {
-        const decodedSession = Buffer.from(sessionID, 'base64').toString('utf-8');
-        fs.writeFileSync('./session_data/creds.json', decodedSession);
+    if (action === 'add') {
+        for (const num of participants) {
+            try {
+                let fotoPerfil;
+                try {
+                    fotoPerfil = await socket.profilePictureUrl(num, 'image');
+                } catch {
+                    fotoPerfil = 'https://flaticon.com'; 
+                }
+
+                const mencao = `@${num.split('@')[0]}`;
+                const ticketNumero = Math.floor(1000 + Math.random() * 9000);
+
+                const textoBoasVindas = `👋 *BEM-VINDO(A) AO GRUPO DE PRODUTORES!*\n\n` +
+                                        `🎧 *Membro:* ${mencao}\n` +
+                                        `🎟️ *Ticket de Acesso:* #${ticketNumero}\n\n` +
+                                        `${REGRAS_GRUPO}`;
+
+                await socket.sendMessage(id, { 
+                    image: { url: fotoPerfil }, 
+                    caption: textoBoasVindas,
+                    mentions: [num]
+                });
+            } catch (error) {
+                console.error("Erro ao dar boas-vindas:", error);
+            }
+        }
     }
+});
 
-    const { state, saveCreds } = await useMultiFileAuthState('session_data');
-    const { version } = await fetchLatestBaileysVersion();
+socket.ev.on('messages.upsert', async (chatUpdate) => {
+    try {
+        const msg = chatUpdate.messages[0];
+        if (!msg.message || msg.key.fromMe) return;
 
-    const socket = makeWASocket({
-        version,
-        auth: state,
-        logger: pino({ level: "silent" }),
-        shouldSyncHistoryMessage: () => false,
-        printQRInTerminal: false,
-        browser: ["@7viDASBotMusic", "Chrome", "1.0.0"]
-    });
+        const from = msg.key.remoteJid;
+        const isGroup = from.endsWith('@g.us');
+        if (!isGroup) return;
 
-    socket.ev.on("creds.update", saveCreds);
+        const textRaw = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || msg.message.videoMessage?.caption || '';
+        const textoMinusculo = textRaw.toLowerCase().trim();
+        const sender = msg.key.participant;
 
-    socket.ev.on("connection.update", (update) => {
-        const { connection } = update;
-        if (connection === "close") startBot();
-        if (connection === "open") console.log("✅ @7viDASBotMusic: PROTOCOLO DE ADM ATIVADO");
-    });
+        const groupMetadata = await socket.groupMetadata(from);
+        const admins = groupMetadata.participants.filter(p => p.admin !== null).map(p => p.id);
+        const botJid = socket.user.id.includes(':') ? socket.user.id.split(':')[0] + '@s.whatsapp.net' : socket.user.id;
+        const isBotAdmin = admins.includes(botJid);
+        const isSenderAdmin = admins.includes(sender);
 
-    socket.ev.on("messages.upsert", async (chatUpdate) => {
-        try {
-            const msg = chatUpdate.messages[0];
-            if (!msg.message || msg.key.fromMe) return;
+        if (isBotAdmin && !isSenderAdmin) {
+            const linkRegex = /(https?:\/\/[^\s]+|www\.[^\s]+)/gi;
+            const isFoto = !!msg.message.imageMessage;
+            const isAudioOuGravacao = !!msg.message.audioMessage; 
 
-            const from = msg.key.remoteJid;
-            const isGroup = from.endsWith('@g.us');
-            const type = Object.keys(msg.message)[0];
-            const textRaw = (msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || "").trim();
-            const sender = msg.key.participant || msg.key.remoteJid;
+            let infracaoDetectada = false;
+            let motivoInfracao = "";
 
-            if (!isGroup) return;
+            if (linkRegex.test(textoMinusculo)) {
+                infracaoDetectada = true;
+                motivoInfracao = "envio de links não autorizados";
+            } else if (isFoto && !textoMinusculo.includes('beat') && !textoMinusculo.includes('vst') && !textoMinusculo.includes('musica') && !textoMinusculo.includes('produção')) {
+                infracaoDetectada = true;
+                motivoInfracao = "envio de fotos fora do tema de produção musical";
+            } else if (isAudioOuGravacao) {
+                const segundos = msg.message.audioMessage.seconds;
+                if (segundos < 3) {
+                    infracaoDetectada = true;
+                    motivoInfracao = "envio de áudio/gravação experimental inválida";
+                }
+            }
 
-            // --- LÓGICA DE ADMINISTRAÇÃO (CONFORME DICA DO GEMINI) ---
-            const groupMetadata = await socket.groupMetadata(from);
-            const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
-            const isBotAdmin = admins.includes(socket.user.id.split(':')[0] + '@s.whatsapp.net');
-            const isSenderAdmin = admins.includes(sender);
-
-            // 1. ANTI-LINK COM DELEÇÃO PROFISSIONAL
-            const linkRegex = /(https?:\/\/|chat\.whatsapp\.com)/gi;
-            if (linkRegex.test(textRaw) && !isSenderAdmin && isBotAdmin) {
-                // Reage com X
+            if (infracaoDetectada) {
                 await socket.sendMessage(from, { react: { text: "❌", key: msg.key } });
                 await delay(500);
+                await socket.sendMessage(from, { delete: msg.key });
 
-                // PROTOCOLO DE DELEÇÃO CORRETO (BAILEYS)
-                await socket.sendMessage(from, { 
-                    delete: { 
-                        remoteJid: from, 
-                        fromMe: false, 
-                        id: msg.key.id, 
-                        participant: sender 
-                    } 
-                });
-
-                // Lógica de Banimento Automático (3 avisos)
                 let avisos = (advertencias.get(sender) || 0) + 1;
                 advertencias.set(sender, avisos);
 
                 if (avisos >= 3) {
                     await socket.groupParticipantsUpdate(from, [sender], "remove");
-                    await socket.sendMessage(from, { text: `🔴 *BANIDO:* @${sender.split('@')[0]} atingiu o limite de links.`, mentions: [sender] });
+                    await socket.sendMessage(from, { text: `🚨 *BANIDO:* O membro @${sender.split('@')[0]} foi expulso automaticamente após atingir o limite de 3 avisos por: *${motivoInfracao}*.`, mentions: [sender] });
                     advertencias.delete(sender);
                 } else {
-                    await socket.sendMessage(from, { text: `⚠️ *AVISO [${avisos}/3]* @${sender.split('@')[0]}, links são proibidos!`, mentions: [sender] });
+                    await socket.sendMessage(from, { text: `⚠️ *AVISO [${avisos}/3]:* @${sender.split('@')[0]}, a sua mensagem foi apagada por *${motivoInfracao}*. Não repita ou será banido!`, mentions: [sender] });
                 }
                 return;
             }
+        }
 
-            // 2. ANTI-BULLYING COM REMOÇÃO DIRETA
-            const bullying = ["bullying", "bully", "preto", "macaco", "estupido", "burro"];
-            if (bullying.some(p => textRaw.toLowerCase().includes(p)) && !isSenderAdmin && isBotAdmin) {
-                await socket.sendMessage(from, { 
-                    delete: { remoteJid: from, fromMe: false, id: msg.key.id, participant: sender } 
-                });
-                await socket.groupParticipantsUpdate(from, [sender], "remove");
-                return;
+        if (textoMinusculo.startsWith('!vst')) {
+            const termoPesquisa = textRaw.slice(5).trim();
+            if (!termoPesquisa) return await socket.sendMessage(from, { text: "❌ Digite o nome do VST. Exemplo: `!vst nexus gratis`" });
+
+            await socket.sendMessage(from, { text: `🔍 A procurar VSTs e Plugins sobre: *${termoPesquisa}* no YouTube...` });
+            const resultado = await yts(termoPesquisa + " vst plugin free");
+            const videos = resultado.videos.slice(0, 3);
+
+            if (videos.length === 0) return await socket.sendMessage(from, { text: "😭 Não encontrei nenhum conteúdo sobre esse VST." });
+
+            let respostaVst = `🎹 *PLUGINS & VSTs ENCONTRADOS* 🎹\n\n`;
+            videos.forEach((v, index) => {
+                respostaVst += `${index + 1}️⃣ *${v.title}*\n📺 Canal: ${v.author.name}\n🔗 Link: ${v.url}\n\n`;
+            });
+            return await socket.sendMessage(from, { text: respostaVst });
+        }
+
+        if (textoMinusculo.startsWith('!dicas')) {
+            const termoDica = textRaw.slice(6).trim();
+            if (!termoDica) return await socket.sendMessage(from, { text: "❌ Digite o que quer aprender. Exemplo: `!dicas beat no celular`" });
+
+            await socket.sendMessage(from, { text: `💡 A buscar tutoriais e dicas para: *${termoDica}*...` });
+            const resultado = await yts(termoDica + " tutorial producao musical");
+            const videos = resultado.videos.slice(0, 2);
+
+            let respostaDicas = `💡 *TUTORIAIS & DICAS SELECIONADAS* 💡\n\n`;
+            videos.forEach((v) => {
+                respostaDicas += `🎵 *${v.title}*\n▶️ Assista aqui: ${v.url}\n\n`;
+            });
+            return await socket.sendMessage(from, { text: respostaDicas });
+        }
+
+        if (textoMinusculo.startsWith('!canal')) {
+            const termoCanal = textRaw.slice(7).trim();
+            if (!termoCanal) return await socket.sendMessage(from, { text: "❌ Digite o nome do canal/artista." });
+
+            await socket.sendMessage(from, { text: `🔎 A procurar o canal de: *${termoCanal}*...` });
+            const resultado = await yts(termoCanal);
+            const canal = resultado.channels[0];
+
+            if (!canal) return await socket.sendMessage(from, { text: "❌ Não encontrei nenhum canal com esse nome." });
+
+            const respostaCanal = `🎤 *CANAL DO YOUTUBE ENCONTRADO* 🎤\n\n` +
+                                  `👤 *Nome:* ${canal.name}\n` +
+                                  `🔗 *Link do Canal:* ${canal.url}`;
+            return await socket.sendMessage(from, { text: respostaCanal });
+        }
+
+        const saudacoes = ['olá família', 'ola familia', 'como estão', 'como estao', 'oi', 'olá', 'ola'];
+        if (saudacoes.some(s => textoMinusculo.includes(s))) {
+            const msgId = msg.key.id;
+            if (!respondidos.has(msgId)) {
+                respondidos.add(msgId);
+                const respostaSaudacao = `👋 Olá! Tudo bem por aqui, a focar nos Beats e nas Produções! 🎧\n\nSe precisares de ajuda com alguma coisa, digita *!menu* para ver os meus comandos de pesquisa e ajuda!`;
+                await socket.sendMessage(from, { text: respostaSaudacao }, { quoted: msg });
+                
+                setTimeout(() => respondidos.delete(msgId), 60000);
             }
+        }
 
-            // --- RECONHECIMENTO DE MÍDIA (CÉREBRO) ---
-            if (type === 'audioMessage') {
-                const isVoz = msg.message.audioMessage.ptt;
-                if (isVoz) {
-                    await socket.sendMessage(from, { react: { text: "🎙️", key: msg.key } });
-                } else {
-                    await socket.sendMessage(from, { react: { text: "✅", key: msg.key } });
-                    await socket.sendMessage(from, { text: "⚪ *[ @7viDASBotMusic ]* ⚪\n\n🔵 _Instrumental recebido. JACKSON@7VIDAS vai analisar._" }, { quoted: msg });
-                }
-                return;
-            }
-
-            // --- COMANDOS ---
-            if (!textRaw.startsWith('!')) return;
-            const args = textRaw.slice(1).trim().split(/\s+/);
-            const command = args.shift().toLowerCase();
-            const query = args.join(" ");
-
-            if (command === "menu") {
-                const menu = `╔═════ 🔵 *@7viDASBotMusic* 🔵 ═════╗
-║
-║ 🔴 *ADMINISTRAÇÃO*
-║ ◽ !warn | !unwarn | !ban
-║ ◽ !link | !marcar
-║
-║ ⚪ *PRODUÇÃO & BUSCAS*
-║ ◽ !yt [busca] | !foto [nome]
-║ ◽ !drums [estilo] | !vst [nome]
-║ ◽ !flpc | !flmobile
-║
-║ 🔵 *STATUS*
-║ ◽ !ping - Velocidade
-║
-║ 👑 ADMIN: JACKSON@7VIDAS
-╚════════════════════════════╝`;
-                await socket.sendMessage(from, { text: menu });
-            }
-
-            if (command === "ping") {
-                const start = Date.now();
-                await socket.sendMessage(from, { text: `🔵 *LATÊNCIA:* ${Date.now() - start}ms` });
-            }
-
-            if (command === "yt") {
-                if (!query) return;
-                const s = await yts(query);
-                if (s.videos[0]) {
-                    const v = s.videos[0];
-                    await socket.sendMessage(from, { text: `📺 *YouTube:* ${v.title}\n🔗 ${v.url}\n👤 *Canal:* ${v.author.url}` });
-                }
-            }
-
-            // ... (Outros comandos permanecem iguais)
-
-        } catch (e) { console.log("Erro no Processamento:", e); }
-    });
-}
-
-startBot();
+    } catch (error) {
+        console.error("Erro interno no processador de comandos:", error);
+    }
+});
