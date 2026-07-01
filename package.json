@@ -1,15 +1,16 @@
 {
-  "name": "7vidasbotmusic",
+  "name": "7vidas-bot",
   "version": "1.0.0",
-  "description": "Bot de música e moderação para WhatsApp",
+  "description": "@7viDASBotMusic PRO",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.5.0",
-    "@hapi/boom": "^10.0.1",
-    "pino": "^8.14.0",
-    "yt-search": "^2.11.1"
+    "baileys": "latest",
+    "express": "latest",
+    "pino": "latest",
+    "yt-search": "latest"
   }
 }
