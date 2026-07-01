@@ -5,13 +5,13 @@ import yts from "yt-search";
 import fs from "fs";
 
 const app = express();
-app.get('/', (req, res) => res.send('Jackson Beatz V3 PRO - Ativo'));
+app.get('/', (req, res) => res.send('Jackson Beatz V3 PRO - Sistema Online'));
 app.listen(process.env.PORT || 3000);
 
-// Memória de Advertências (Reseta se o bot reiniciar, mas o Cron-job mantém vivo)
 const advertencias = new Map();
 
 async function startJackson() {
+    // RECUPERAÇÃO DE SESSÃO (SESSION_ID)
     if (!fs.existsSync('./session_data')) fs.mkdirSync('./session_data');
     const sessionID = process.env.SESSION_ID;
     if (sessionID && !fs.existsSync('./session_data/creds.json')) {
@@ -31,6 +31,26 @@ async function startJackson() {
     });
 
     socket.ev.on("creds.update", saveCreds);
+
+    // --- SISTEMA DE BOAS-VINDAS (WELCOME) ---
+    socket.ev.on("group-participants.update", async (anu) => {
+        if (anu.action === 'add') {
+            const metadata = await socket.groupMetadata(anu.id);
+            for (let jid of anu.participants) {
+                const welcomeMsg = `╔═════ ⚪ *WELCOME* ⚪ ═════╗
+║
+║ 👋 Olá, @${jid.split('@')[0]}!
+║ Bem-vindo(a) à *${metadata.subject}*.
+║
+║ 🔵 Aqui a música não para!
+║ 🔴 Digite *!menu* para ver os comandos.
+║ ⚪ Siga as regras para não ser banido.
+║
+╚══════════════════════════╝`;
+                await socket.sendMessage(anu.id, { text: welcomeMsg, mentions: [jid] });
+            }
+        }
+    });
 
     socket.ev.on("connection.update", (update) => {
         const { connection } = update;
@@ -56,21 +76,28 @@ async function startJackson() {
             const isBotAdmin = admins.includes(socket.user.id.split(':')[0] + '@s.whatsapp.net');
             const isSenderAdmin = admins.includes(sender);
 
-            // --- 1. FILTRO ANTI-BULLYING / INSULTOS (BAN IMEDIATO) ---
-            const insultos = ["bullying", "bully", "macaco", "preto", "estupido", "burro", "lixo", "verme", "anormal", "aleijado", "fdp"];
-            if (insultos.some(p => text.includes(p)) && !isSenderAdmin && isBotAdmin) {
-                await socket.sendMessage(from, { react: { text: "🚫", key: msg.key } });
-                await socket.sendMessage(from, { delete: msg.key });
-                await socket.groupParticipantsUpdate(from, [sender], "remove");
-                await socket.sendMessage(from, { text: `🔴 *SISTEMA ANTI-BULLYING* 🔴\n\nO usuário @${sender.split('@')[0]} foi banido por falta de respeito ou bullying.`, mentions: [sender] });
+            // --- DETECTOR DE INSTRUMENTAL (ÁUDIO) ---
+            if (type === 'audioMessage') {
+                await socket.sendMessage(from, { react: { text: "✅", key: msg.key } });
+                await socket.sendMessage(from, { text: "⚪ *[ JACKSON BEATZ ]* ⚪\n\n🔵 _Instrumental recebido. Positivo, alguém vai analisar esta obra._" }, { quoted: msg });
                 return;
             }
 
-            // --- 2. ANTI-LINK E MÍDIA IRRELEVANTE (SISTEMA DE 3 AVISOS) ---
-            const linkRegex = /(https?:\/\/|chat\.whatsapp\.com)/gi;
-            const isMediaNaoBeat = (type === 'imageMessage' || type === 'videoMessage') && !isSenderAdmin;
+            // --- ANTI-BULLYING (BAN IMEDIATO) ---
+            const bullying = ["bullying", "bully", "preto", "macaco", "estupido", "burro", "lixo", "verme", "anormal", "aleijado"];
+            if (bullying.some(p => text.includes(p)) && !isSenderAdmin && isBotAdmin) {
+                await socket.sendMessage(from, { react: { text: "🚫", key: msg.key } });
+                await socket.sendMessage(from, { delete: msg.key });
+                await socket.groupParticipantsUpdate(from, [sender], "remove");
+                await socket.sendMessage(from, { text: `🔴 *BANIMENTO POR BULLYING* 🔴\n\nUsuário @${sender.split('@')[0]} removido por desrespeito.`, mentions: [sender] });
+                return;
+            }
 
-            if ((linkRegex.test(text) || isMediaNaoBeat) && !isSenderAdmin && isBotAdmin) {
+            // --- ANTI-LINK E MÍDIA (3 AVISOS) ---
+            const linkRegex = /(https?:\/\/|chat\.whatsapp\.com)/gi;
+            const isMediaInvalida = (type === 'imageMessage' || type === 'videoMessage');
+
+            if ((linkRegex.test(text) || isMediaInvalida) && !isSenderAdmin && isBotAdmin) {
                 await socket.sendMessage(from, { react: { text: "❌", key: msg.key } });
                 await socket.sendMessage(from, { delete: msg.key });
 
@@ -79,60 +106,48 @@ async function startJackson() {
 
                 if (avisos >= 3) {
                     await socket.groupParticipantsUpdate(from, [sender], "remove");
-                    await socket.sendMessage(from, { text: `🔴 *EXPULSO:* @${sender.split('@')[0]} atingiu o limite de 3 advertências.`, mentions: [sender] });
+                    await socket.sendMessage(from, { text: `🔴 *EXPULSO:* @${sender.split('@')[0]} atingiu 3 avisos.`, mentions: [sender] });
                     advertencias.delete(sender);
                 } else {
-                    await socket.sendMessage(from, { text: `⚠️ *ADVERTÊNCIA [${avisos}/3]*\n\n@${sender.split('@')[0]}, não envie links ou fotos/vídeos. Use apenas ÁUDIO para beats. No 3º erro é banimento.`, mentions: [sender] });
+                    await socket.sendMessage(from, { text: `⚠️ *AVISO [${avisos}/3]*\n\n@${sender.split('@')[0]}, evite links e fotos/vídeos que não sejam beats.`, mentions: [sender] });
                 }
                 return;
             }
 
-            // --- 3. REAÇÃO PARA INSTRUMENTAIS (ÁUDIO) ---
-            if (type === 'audioMessage') {
-                await socket.sendMessage(from, { react: { text: "✅", key: msg.key } });
-                await socket.sendMessage(from, { text: "⚪ *[ JACKSON BEATZ ]* ⚪\n\n🔵 _Positivo, alguém vai reagir ou alguém vai analisar esta obra._" }, { quoted: msg });
-                return;
-            }
-
+            // --- COMANDOS ---
             const args = text.split(" ");
             const command = args[0];
             const query = text.slice(command.length).trim();
 
-            // --- MENU PROFISSIONAL ESTILIZADO ---
             if (command === "!menu") {
-                const menuPro = `╔═════ 🔵 *JACKSON BEATZ V3* 🔵 ═════╗
+                const menuPro = `╔══════ 🔵 *JACKSON BEATZ* 🔵 ══════╗
 ║
-║ 🔴 *ESTÚDIO & PRODUÇÃO*
-║ ◽ !drums [estilo] - Packs YouTube
-║ ◽ !vst [nome] - Plugins/VSTs
-║ ◽ !flpc - FL Studio para PC
-║ ◽ !flmobile - FL Studio Mobile
-║ ◽ !bandlab - Tudo BandLab
-║ ◽ !voloco - Tudo Voloco
+║ 🔴 *SOFTWARES*
+║ ◽ !flpc | !flmobile
+║ ◽ !bandlab | !voloco
 ║
-║ ⚪ *UTILITÁRIOS & BUSCAS*
-║ ◽ !foto [nome] - Capa de vídeo
-║ ◽ !yt [busca] - Vídeo + Canal
+║ ⚪ *PRODUÇÃO*
+║ ◽ !drums [estilo]
+║ ◽ !vst [nome]
 ║
-║ 🔵 *MODERAÇÃO & GRUPO*
-║ ◽ !link - Link do grupo
-║ ◽ !ban - Banir (Marcar user)
+║ 🔵 *BUSCAS & ADM*
+║ ◽ !foto [nome] | !yt [busca]
+║ ◽ !link | !ban
 ║
-║ ⚠️ *AVISO:* Links e mídia (sem ser beat)
-║ resultam em advertência (3x = BAN).
-║ Bullying e insultos = BAN IMEDIATO!
-╚═══════════════════════════════╝`;
+╚════════════════════════════╝`;
                 await socket.sendMessage(from, { text: menuPro });
             }
 
-            // --- COMANDOS DE BUSCA (YT / FOTO) ---
+            if (command === "!link" && isBotAdmin) {
+                const code = await socket.groupInviteCode(from);
+                await socket.sendMessage(from, { text: `🔗 *LINK:* https://chat.whatsapp.com/${code}` });
+            }
+
             if (command === "!yt") {
-                if (!query) return;
-                const s = await yts(query);
-                if (s.videos[0]) {
-                    const v = s.videos[0];
-                    const msgYt = `📺 *YOUTUBE SEARCH*\n\n🔵 *Título:* ${v.title}\n⚪ *Link:* ${v.url}\n🔴 *Canal:* ${v.author.name}\n🔗 *Link Canal:* ${v.author.url}`;
-                    await socket.sendMessage(from, { text: msgYt });
+                const s = await yts(query || "jackson beatz");
+                const v = s.videos[0];
+                if (v) {
+                    await socket.sendMessage(from, { text: `📺 *YouTube:* ${v.title}\n🔗 ${v.url}\n👤 *Canal:* ${v.author.name}\n🔗 ${v.author.url}` });
                 }
             }
 
@@ -143,29 +158,14 @@ async function startJackson() {
                 }
             }
 
-            // --- COMANDOS DE SOFTWARE E SAMPLES ---
-            if (command === "!flpc") {
-                const s = await yts("FL Studio PC latest version full download");
-                await socket.sendMessage(from, { text: `💻 *FL STUDIO PC:* \n\n${s.videos[0].title}\n🔗 ${s.videos[0].url}` });
+            if (command === "!drums" || command === "!vst" || command === "!flpc" || command === "!flmobile") {
+                const s = await yts(`${command.slice(1)} ${query || 'latest download'}`);
+                await socket.sendMessage(from, { text: `🥁 *ENCONTRADO:* \n\n${s.videos[0].title}\n🔗 ${s.videos[0].url}` });
             }
 
-            if (command === "!flmobile") {
-                const s = await yts("FL Studio Mobile apk download latest");
-                await socket.sendMessage(from, { text: `📱 *FL STUDIO MOBILE:* \n\n${s.videos[0].title}\n🔗 ${s.videos[0].url}` });
-            }
-
-            if (command === "!drums" || command === "!vst" || command === "!bandlab" || command === "!voloco") {
-                const s = await yts(`${command.slice(1)} ${query || 'pack free'}`);
-                await socket.sendMessage(from, { text: `🥁 *BUSCA MUSICAL:* \n\n${s.videos[0].title}\n🔗 ${s.videos[0].url}` });
-            }
-
-            // --- MODERAÇÃO MANUAL ---
             if (command === "!ban" && isSenderAdmin && isBotAdmin) {
                 let users = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [msg.message.extendedTextMessage?.contextInfo?.participant];
-                if (users[0]) {
-                    await socket.groupParticipantsUpdate(from, users, "remove");
-                    await socket.sendMessage(from, { text: "🔵 Usuário removido." });
-                }
+                if (users[0]) await socket.groupParticipantsUpdate(from, users, "remove");
             }
 
         } catch (e) { console.log(e); }
