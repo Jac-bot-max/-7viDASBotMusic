@@ -1,14 +1,13 @@
 {
   "name": "7vidas-bot",
   "version": "1.0.0",
-  "description": "@7viDASBotMusic PRO",
-  "main": "index.js",
   "type": "module",
+  "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "baileys": "latest",
+    "@whiskeysockets/baileys": "latest",
     "express": "latest",
     "pino": "latest",
     "yt-search": "latest"
