@@ -5,7 +5,7 @@ const {
     delay, 
     jidNormalizedUser 
 } = require('@whiskeysockets/baileys');
-const { Boom } = require('@boomjs/boom');
+const { Boom } = require('@hapi/boom');
 const pino = require('pino');
 const yts = require('yt-search');
 
@@ -60,7 +60,7 @@ async function startBot() {
                         fotoPerfil = 'https://flaticon.com'; 
                     }
                     const ticketNumero = Math.floor(1000 + Math.random() * 9000);
-                    const textoBoasVindas = `👋 *BEM-VINDO(A) AO GRUPO DE PRODUTORES!*\n\n🎧 *Membro:* @${num.split('@')[0]}\n🎟️ *Ticket de Acesso:* #${ticketNumero}\n\n${REGRAS_GRUPO}`;
+                    const textoBoasVindas = `👋 *BEM-VINDO(A) AO GRUPO DE PRODUTORES!*\n\n🎧 *Membro:* @${num.split('@')}\n🎟️ *Ticket de Acesso:* #${ticketNumero}\n\n${REGRAS_GRUPO}`;
                     await socket.sendMessage(id, { image: { url: fotoPerfil }, caption: textoBoasVindas, mentions: [num] });
                 } catch (e) { 
                     console.error("Erro boas-vindas:", e); 
@@ -119,10 +119,10 @@ async function startBot() {
 
                     if (avisos >= 3) {
                         await socket.groupParticipantsUpdate(from, [sender], "remove");
-                        await socket.sendMessage(from, { text: `🚨 *BANIDO:* O membro @${sender.split('@')[0]} foi expulso após 3 avisos por: *${motivo}*.`, mentions: [sender] });
+                        await socket.sendMessage(from, { text: `🚨 *BANIDO:* O membro @${sender.split('@')} foi expulso após 3 avisos por: *${motivo}*.`, mentions: [sender] });
                         global.advertencias.delete(sender);
                     } else {
-                        await socket.sendMessage(from, { text: `⚠️ *AVISO [${avisos}/3]:* @${sender.split('@')[0]}, a sua mensagem foi removida por *${motivo}*.`, mentions: [sender] });
+                        await socket.sendMessage(from, { text: `⚠️ *AVISO [${avisos}/3]:* @${sender.split('@')}, a sua mensagem foi removida por *${motivo}*.`, mentions: [sender] });
                     }
                     return;
                 }
@@ -176,7 +176,7 @@ async function startBot() {
             }
 
         } catch (error) {
-            console.error("Erro interno no processamento:", error);
+            console.error("Erro interno no處理:", error);
         }
     });
 }
