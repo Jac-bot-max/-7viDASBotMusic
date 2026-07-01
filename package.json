@@ -8,6 +8,8 @@
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.5.0",
+    "@boomjs/boom": "^1.0.0",
+    "pino": "^8.14.0",
     "yt-search": "^2.11.1"
   }
 }
