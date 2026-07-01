@@ -1,18 +1,18 @@
 import express from 'express';
 import makeWASocket, { DisconnectReason, fetchLatestBaileysVersion, useMultiFileAuthState } from "baileys";
 import pino from "pino";
-import fs from "fs";
 import yts from "yt-search";
+import fs from "fs";
 
 const app = express();
-app.get('/', (req, res) => res.send('Jackson Beatz V3 - Gerador de Sessão Ativo!'));
+app.get('/', (req, res) => res.send('Jackson Beatz V3 - Central de Produção Ativa!'));
 app.listen(process.env.PORT || 3000);
 
-async function startBot() {
-    // Tenta carregar a sessão se ela já existir no Render
+async function startJackson() {
+    // Recuperação de Sessão via Chave (SESSION_ID)
+    if (!fs.existsSync('./session_data')) fs.mkdirSync('./session_data');
     const sessionID = process.env.SESSION_ID;
     if (sessionID && !fs.existsSync('./session_data/creds.json')) {
-        if (!fs.existsSync('./session_data')) fs.mkdirSync('./session_data');
         const decodedSession = Buffer.from(sessionID, 'base64').toString('utf-8');
         fs.writeFileSync('./session_data/creds.json', decodedSession);
     }
@@ -28,96 +28,103 @@ async function startBot() {
         shouldSyncHistoryMessage: () => false,
     });
 
-    // Se não tiver login, gera o código de 8 dígitos nos Logs do Render
-    if (!socket.authState.creds.registered) {
-        const numero = process.env.NUMERO_BOT;
-        if (numero) {
-            setTimeout(async () => {
-                let code = await socket.requestPairingCode(numero);
-                code = code?.match(/.{1,4}/g)?.join("-") || code;
-                console.log(`\nCÓDIGO DE PAREAMENTO: ${code}\n`);
-            }, 7000);
-        }
-    }
-
     socket.ev.on("creds.update", saveCreds);
+
+    // BOAS-VINDAS AUTOMÁTICAS
+    socket.ev.on("group-participants.update", async (anu) => {
+        if (anu.action === 'add') {
+            for (let jid of anu.participants) {
+                await socket.sendMessage(anu.id, { text: `🎧 Bem-vindo(a) à família Jackson Beatz, @${jid.split('@')[0]}! \n\nUsa o comando *!menu* para ver os packs e plugins disponíveis no YouTube.`, mentions: [jid] });
+            }
+        }
+    });
 
     socket.ev.on("connection.update", (update) => {
         const { connection } = update;
-        if (connection === "close") startBot();
-        if (connection === "open") console.log("✅ BOT CONECTADO!");
+        if (connection === "close") startJackson();
+        if (connection === "open") console.log("✅ JACKSON BEATZ V3: SISTEMA PRONTO!");
     });
 
     socket.ev.on("messages.upsert", async (chatUpdate) => {
-        const msg = chatUpdate.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-        const from = msg.key.remoteJid;
-        const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
+        try {
+            const msg = chatUpdate.messages[0];
+            if (!msg.message || msg.key.fromMe) return;
 
-        // --- COMANDO MÁGICO PARA GERAR A CHAVE ---
-        if (text === "!key") {
-            try {
-                const creds = fs.readFileSync('./session_data/creds.json');
-                const sessionString = Buffer.from(creds).toString('base64');
-                await socket.sendMessage(from, { text: "Aqui está a sua nova SESSION_ID para colar no Render:\n\n" + sessionString });
-            } catch (e) {
-                await socket.sendMessage(from, { text: "Erro ao gerar chave. O bot ainda está sincronizando." });
+            const from = msg.key.remoteJid;
+            const isGroup = from.endsWith('@g.us');
+            const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
+            const args = text.split(" ");
+            const command = args[0];
+            const query = text.slice(command.length).trim();
 
-        // COMANDO !FOTO
-        if (text.startsWith("!foto")) {
-            const termo = text.slice(6).trim();
-            const search = await yts(termo);
-            const video = search.videos[0];
-            if (video) {
-                await socket.sendMessage(from, { image: { url: video.thumbnail }, caption: `*Resultado:* ${video.title}` });
-        
-        });
-    }
+            // MENU DE COMANDOS
+            if (command === "!menu") {
+                const menu = `--- 🎹 JACKSON BEATZ V3 ---
 
-    // =========================
-    // COMANDO !PING
-    // =========================
-    if (text === "!ping") {
-        await socket.sendMessage(from, {
-            text: "🏓 Pong!"
-        });
-    }
+*PRODUÇÃO (YOUTUBE):*
+!drums [estilo] - Busca packs de bateria (Ex: !drums trap)
+!vst [nome] - Busca plugins (Ex: !vst piano)
+!foto [nome] - Foto da capa de um vídeo
+!yt [busca] - Link de qualquer vídeo
 
-    // =========================
-    // COMANDO !MENU
-    // =========================
-    if (text === "!menu") {
-        await socket.sendMessage(from, {
-            text:
-`📌 MENU DO BOT
+*ADMINISTRAÇÃO:*
+!ban - Remover alguém (marcar a pessoa)
+!link - Link de convite do grupo`;
+                await socket.sendMessage(from, { text: menu });
+            }
 
-!ping - testar bot
-!menu - ver comandos
-!ban - remover membro`
-        });
-    }
+            // COMANDO !DRUMS FLEXÍVEL
+            if (command === "!drums") {
+                // Se o usuário não digitar o estilo, busca packs grátis gerais
+                const buscaDrums = query ? `drum kit ${query} free download` : "best free drum kits 2024 pack";
+                await socket.sendMessage(from, { text: `🔍 Procurando Drums de *${query || 'Geral'}* no YouTube...` });
+                
+                const search = await yts(buscaDrums);
+                if (search.videos[0]) {
+                    const v = search.videos[0];
+                    await socket.sendMessage(from, { text: `🥁 *DRUM KIT ENCONTRADO:* \n\n*Título:* ${v.title}\n*Canal:* ${v.author.name}\n*Link:* ${v.url}` });
+                } else {
+                    await socket.sendMessage(from, { text: "❌ Não encontrei nenhum pack para este estilo." });
+                }
+            }
 
-    // =========================
-    // COMANDO !BAN
-    // =========================
-    if (text.startsWith("!ban")) {
+            // COMANDO !VST FLEXÍVEL
+            if (command === "!vst") {
+                const buscaVst = query ? `best free ${query} vst plugin` : "top free vst plugins 2024";
+                const search = await yts(buscaVst);
+                if (search.videos[0]) {
+                    const v = search.videos[0];
+                    await socket.sendMessage(from, { text: `🎹 *VST ENCONTRADO:* \n\n*Título:* ${v.title}\n*Link:* ${v.url}` });
+                }
+            }
 
-        const user = msg.message?.extendedTextMessage?.contextInfo?.participant;
+            // BUSCA GERAL
+            if (command === "!yt") {
+                if (!query) return;
+                const search = await yts(query);
+                if (search.videos[0]) {
+                    await socket.sendMessage(from, { text: `📺 *YouTube:* \n\n${search.videos[0].title}\n${search.videos[0].url}` });
+                }
+            }
 
-        if (!user) {
-            await socket.sendMessage(from, {
-                text: "❌ Responde a mensagem de alguém para banir"
-            });
-            return;
-        }
+            // FOTO
+            if (command === "!foto") {
+                const search = await yts(query);
+                if (search.videos[0]) {
+                    await socket.sendMessage(from, { image: { url: search.videos[0].thumbnail }, caption: `*Capa:* ${search.videos[0].title}` });
+                }
+            }
 
-        await socket.groupParticipantsUpdate(from, [user], "remove");
+            // MODERAÇÃO
+            if ((command === "!ban" || command === "!remover") && isGroup) {
+                let users = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [msg.message.extendedTextMessage?.contextInfo?.participant];
+                if (!users[0]) return;
+                await socket.groupParticipantsUpdate(from, users, "remove");
+                await socket.sendMessage(from, { text: "✅ Utilizador removido." });
+            }
 
-        await socket.sendMessage(from, {
-            text: "🚫 Usuário removido"
-        });
-    }
+        } catch (e) { console.log(e); }
+    });
+}
 
-}); // 🔒 FECHO FINAL DO BOT (NÃO MEXER)
-
-startBot();
+startJackson();
