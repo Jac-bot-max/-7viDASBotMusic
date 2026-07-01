@@ -4,14 +4,15 @@ import pino from "pino";
 import yts from "yt-search";
 import fs from "fs";
 
+// --- SERVIDOR PARA MANTER ONLINE NO RENDER ---
 const app = express();
-app.get('/', (req, res) => res.send('Jackson Beatz V3 PRO - Sistema Online'));
+app.get('/', (req, res) => res.send('@7viDASBotMusic Online - ADM: JACKSON@7VIDAS'));
 app.listen(process.env.PORT || 3000);
 
 const advertencias = new Map();
 
-async function startJackson() {
-    // RECUPERAÇÃO DE SESSÃO (SESSION_ID)
+async function startBot() {
+    // Recuperação de Sessão via Chave (SESSION_ID)
     if (!fs.existsSync('./session_data')) fs.mkdirSync('./session_data');
     const sessionID = process.env.SESSION_ID;
     if (sessionID && !fs.existsSync('./session_data/creds.json')) {
@@ -28,34 +29,25 @@ async function startJackson() {
         logger: pino({ level: "silent" }),
         shouldSyncHistoryMessage: () => false,
         printQRInTerminal: false,
+        browser: ["@7viDASBotMusic", "Safari", "1.0.0"]
     });
 
     socket.ev.on("creds.update", saveCreds);
 
-    // --- SISTEMA DE BOAS-VINDAS (WELCOME) ---
+    // --- BOAS-VINDAS ---
     socket.ev.on("group-participants.update", async (anu) => {
         if (anu.action === 'add') {
-            const metadata = await socket.groupMetadata(anu.id);
             for (let jid of anu.participants) {
-                const welcomeMsg = `╔═════ ⚪ *WELCOME* ⚪ ═════╗
-║
-║ 👋 Olá, @${jid.split('@')[0]}!
-║ Bem-vindo(a) à *${metadata.subject}*.
-║
-║ 🔵 Aqui a música não para!
-║ 🔴 Digite *!menu* para ver os comandos.
-║ ⚪ Siga as regras para não ser banido.
-║
-╚══════════════════════════╝`;
-                await socket.sendMessage(anu.id, { text: welcomeMsg, mentions: [jid] });
+                const welcome = `╔═════ ⚪ *WELCOME* ⚪ ═════╗\n║\n║ 👋 Olá, @${jid.split('@')[0]}!\n║ Bem-vindo ao *@7viDASBotMusic*.\n║ 👑 ADM: *JACKSON@7VIDAS*\n║\n║ 🔵 Use *!menu* para navegar.\n║\n╚══════════════════════════╝`;
+                await socket.sendMessage(anu.id, { text: welcome, mentions: [jid] });
             }
         }
     });
 
     socket.ev.on("connection.update", (update) => {
         const { connection } = update;
-        if (connection === "close") startJackson();
-        if (connection === "open") console.log("✅ JACKSON BEATZ PRO: CONECTADO");
+        if (connection === "close") startBot();
+        if (connection === "open") console.log("✅ @7viDASBotMusic: ONLINE");
     });
 
     socket.ev.on("messages.upsert", async (chatUpdate) => {
@@ -66,7 +58,7 @@ async function startJackson() {
             const from = msg.key.remoteJid;
             const isGroup = from.endsWith('@g.us');
             const type = Object.keys(msg.message)[0];
-            const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
+            const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase().trim();
             const sender = msg.key.participant || msg.key.remoteJid;
 
             if (!isGroup) return;
@@ -76,28 +68,21 @@ async function startJackson() {
             const isBotAdmin = admins.includes(socket.user.id.split(':')[0] + '@s.whatsapp.net');
             const isSenderAdmin = admins.includes(sender);
 
-            // --- DETECTOR DE INSTRUMENTAL (ÁUDIO) ---
-            if (type === 'audioMessage') {
-                await socket.sendMessage(from, { react: { text: "✅", key: msg.key } });
-                await socket.sendMessage(from, { text: "⚪ *[ JACKSON BEATZ ]* ⚪\n\n🔵 _Instrumental recebido. Positivo, alguém vai analisar esta obra._" }, { quoted: msg });
-                return;
-            }
-
-            // --- ANTI-BULLYING (BAN IMEDIATO) ---
-            const bullying = ["bullying", "bully", "preto", "macaco", "estupido", "burro", "lixo", "verme", "anormal", "aleijado"];
+            // --- 1. ANTI-BULLYING (BAN IMEDIATO) ---
+            const bullying = ["bullying", "bully", "preto", "macaco", "lixo", "verme", "anormal", "aleijado", "burro", "estupido"];
             if (bullying.some(p => text.includes(p)) && !isSenderAdmin && isBotAdmin) {
                 await socket.sendMessage(from, { react: { text: "🚫", key: msg.key } });
                 await socket.sendMessage(from, { delete: msg.key });
                 await socket.groupParticipantsUpdate(from, [sender], "remove");
-                await socket.sendMessage(from, { text: `🔴 *BANIMENTO POR BULLYING* 🔴\n\nUsuário @${sender.split('@')[0]} removido por desrespeito.`, mentions: [sender] });
+                await socket.sendMessage(from, { text: `🔴 *BANIDO POR BULLYING* 🔴\n\n@${sender.split('@')[0]} expulso por desrespeito.`, mentions: [sender] });
                 return;
             }
 
-            // --- ANTI-LINK E MÍDIA (3 AVISOS) ---
+            // --- 2. ANTI-LINK E MÍDIA (3 AVISOS) ---
             const linkRegex = /(https?:\/\/|chat\.whatsapp\.com)/gi;
-            const isMediaInvalida = (type === 'imageMessage' || type === 'videoMessage');
+            const isMedia = (type === 'imageMessage' || type === 'videoMessage');
 
-            if ((linkRegex.test(text) || isMediaInvalida) && !isSenderAdmin && isBotAdmin) {
+            if ((linkRegex.test(text) || isMedia) && !isSenderAdmin && isBotAdmin) {
                 await socket.sendMessage(from, { react: { text: "❌", key: msg.key } });
                 await socket.sendMessage(from, { delete: msg.key });
 
@@ -106,61 +91,77 @@ async function startJackson() {
 
                 if (avisos >= 3) {
                     await socket.groupParticipantsUpdate(from, [sender], "remove");
-                    await socket.sendMessage(from, { text: `🔴 *EXPULSO:* @${sender.split('@')[0]} atingiu 3 avisos.`, mentions: [sender] });
+                    await socket.sendMessage(from, { text: `🔴 *LIMITE ATINGIDO:* @${sender.split('@')[0]} expulso.`, mentions: [sender] });
                     advertencias.delete(sender);
                 } else {
-                    await socket.sendMessage(from, { text: `⚠️ *AVISO [${avisos}/3]*\n\n@${sender.split('@')[0]}, evite links e fotos/vídeos que não sejam beats.`, mentions: [sender] });
+                    await socket.sendMessage(from, { text: `⚠️ *AVISO [${avisos}/3]:* @${sender.split('@')[0]}, não envie links/mídia.`, mentions: [sender] });
                 }
                 return;
             }
 
-            // --- COMANDOS ---
+            // --- 3. REAÇÃO INSTRUMENTAL ---
+            if (type === 'audioMessage') {
+                await socket.sendMessage(from, { react: { text: "✅", key: msg.key } });
+                await socket.sendMessage(from, { text: "⚪ *[ @7viDASBotMusic ]* ⚪\n\n🔵 _Instrumental recebido. Positivo, JACKSON@7VIDAS vai analisar._" }, { quoted: msg });
+                return;
+            }
+
             const args = text.split(" ");
             const command = args[0];
             const query = text.slice(command.length).trim();
 
+            // --- 4. COMANDOS ---
+
+            if (command === "!ping") {
+                const start = Date.now();
+                await socket.sendMessage(from, { text: "🚀 _Ping..._" });
+                await socket.sendMessage(from, { text: `🔵 *LATÊNCIA:* ${Date.now() - start}ms\n⚪ *NOME:* @7viDASBotMusic\n🔴 *ADM:* JACKSON@7VIDAS` });
+            }
+
             if (command === "!menu") {
-                const menuPro = `╔══════ 🔵 *JACKSON BEATZ* 🔵 ══════╗
+                const menu = `╔════ 🔵 *@7viDASBotMusic* 🔵 ════╗
 ║
-║ 🔴 *SOFTWARES*
+║ 🔴 *SOFTWARES & PRODUÇÃO*
 ║ ◽ !flpc | !flmobile
 ║ ◽ !bandlab | !voloco
-║
-║ ⚪ *PRODUÇÃO*
 ║ ◽ !drums [estilo]
 ║ ◽ !vst [nome]
 ║
-║ 🔵 *BUSCAS & ADM*
-║ ◽ !foto [nome] | !yt [busca]
-║ ◽ !link | !ban
+║ ⚪ *BUSCAS YT*
+║ ◽ !foto [nome]
+║ ◽ !yt [busca] (Com Canal)
+║ ◽ !ping (Velocidade)
 ║
-╚════════════════════════════╝`;
-                await socket.sendMessage(from, { text: menuPro });
-            }
-
-            if (command === "!link" && isBotAdmin) {
-                const code = await socket.groupInviteCode(from);
-                await socket.sendMessage(from, { text: `🔗 *LINK:* https://chat.whatsapp.com/${code}` });
+║ 🔵 *MODERAÇÃO & ADM*
+║ ◽ !link | !ban
+║ 👑 *ADM:* JACKSON@7VIDAS
+║
+╚══════════════════════════╝`;
+                await socket.sendMessage(from, { text: menu });
             }
 
             if (command === "!yt") {
-                const s = await yts(query || "jackson beatz");
-                const v = s.videos[0];
-                if (v) {
-                    await socket.sendMessage(from, { text: `📺 *YouTube:* ${v.title}\n🔗 ${v.url}\n👤 *Canal:* ${v.author.name}\n🔗 ${v.author.url}` });
+                if (!query) return;
+                const s = await yts(query);
+                if (s.videos[0]) {
+                    const v = s.videos[0];
+                    await socket.sendMessage(from, { text: `📺 *YouTube Search*\n\n🔵 *Título:* ${v.title}\n⚪ *Link:* ${v.url}\n🔴 *Canal:* ${v.author.name}\n🔗 *Link Canal:* ${v.author.url}` });
                 }
             }
 
             if (command === "!foto") {
                 const s = await yts(query);
-                if (s.videos[0]) {
-                    await socket.sendMessage(from, { image: { url: s.videos[0].thumbnail }, caption: `🔵 *Capa:* ${s.videos[0].title}` });
-                }
+                if (s.videos[0]) await socket.sendMessage(from, { image: { url: s.videos[0].thumbnail }, caption: `🔵 *Thumbnail Encontrada por @7viDASBotMusic*` });
             }
 
             if (command === "!drums" || command === "!vst" || command === "!flpc" || command === "!flmobile") {
-                const s = await yts(`${command.slice(1)} ${query || 'latest download'}`);
-                await socket.sendMessage(from, { text: `🥁 *ENCONTRADO:* \n\n${s.videos[0].title}\n🔗 ${s.videos[0].url}` });
+                const s = await yts(`${command.slice(1)} ${query || 'free download'}`);
+                await socket.sendMessage(from, { text: `🥁 *DRUMS/SOFTWARE:* \n\n${s.videos[0].title}\n🔗 ${s.videos[0].url}` });
+            }
+
+            if (command === "!link" && isBotAdmin) {
+                const code = await socket.groupInviteCode(from);
+                await socket.sendMessage(from, { text: `🔗 *LINK DO GRUPO:*\nhttps://chat.whatsapp.com/${code}` });
             }
 
             if (command === "!ban" && isSenderAdmin && isBotAdmin) {
@@ -172,4 +173,4 @@ async function startJackson() {
     });
 }
 
-startJackson();
+startBot();
