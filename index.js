@@ -5,11 +5,10 @@ import yts from "yt-search";
 import fs from "fs";
 
 const app = express();
-app.get('/', (req, res) => res.send('Jackson Beatz V3 - Central de Produção Ativa!'));
+app.get('/', (req, res) => res.send('Jackson Beatz V3 PRO - Online'));
 app.listen(process.env.PORT || 3000);
 
 async function startJackson() {
-    // Recuperação de Sessão via Chave (SESSION_ID)
     if (!fs.existsSync('./session_data')) fs.mkdirSync('./session_data');
     const sessionID = process.env.SESSION_ID;
     if (sessionID && !fs.existsSync('./session_data/creds.json')) {
@@ -22,27 +21,18 @@ async function startJackson() {
 
     const socket = makeWASocket({
         version,
-        printQRInTerminal: false,
         auth: state,
         logger: pino({ level: "silent" }),
         shouldSyncHistoryMessage: () => false,
+        printQRInTerminal: false,
     });
 
     socket.ev.on("creds.update", saveCreds);
 
-    // BOAS-VINDAS AUTOMÁTICAS
-    socket.ev.on("group-participants.update", async (anu) => {
-        if (anu.action === 'add') {
-            for (let jid of anu.participants) {
-                await socket.sendMessage(anu.id, { text: `🎧 Bem-vindo(a) à família Jackson Beatz, @${jid.split('@')[0]}! \n\nUsa o comando *!menu* para ver os packs e plugins disponíveis no YouTube.`, mentions: [jid] });
-            }
-        }
-    });
-
     socket.ev.on("connection.update", (update) => {
         const { connection } = update;
         if (connection === "close") startJackson();
-        if (connection === "open") console.log("✅ JACKSON BEATZ V3: SISTEMA PRONTO!");
+        if (connection === "open") console.log("✅ JACKSON BEATZ PRO: ATIVO");
     });
 
     socket.ev.on("messages.upsert", async (chatUpdate) => {
@@ -52,75 +42,98 @@ async function startJackson() {
 
             const from = msg.key.remoteJid;
             const isGroup = from.endsWith('@g.us');
+            const type = Object.keys(msg.message)[0];
+            const content = JSON.stringify(msg.message);
             const text = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
+            const sender = msg.key.participant || msg.key.remoteJid;
+
+            // --- DETECTAR INSTRUMENTAL / MÚSICA (ÁUDIO OU VÍDEO) ---
+            if (type === 'audioMessage' || type === 'videoMessage') {
+                await socket.sendMessage(from, { react: { text: "✅", key: msg.key } });
+                await socket.sendMessage(from, { text: "⚪ *[ JACKSON BEATZ ]* ⚪\n\n🔵 _Positivo, alguém vai reagir ou alguém vai analisar esta obra._", quoted: msg });
+                return; // Não executa os comandos abaixo se for mídia
+            }
+
+            // --- ANTI-LINK (APAGAR E BANIR) ---
+            const linkRegex = /(https?:\/\/|chat\.whatsapp\.com)/gi;
+            if (isGroup && linkRegex.test(text)) {
+                // Se não for admin, apaga e bane
+                const groupMetadata = await socket.groupMetadata(from);
+                const admins = groupMetadata.participants.filter(p => p.admin).map(p => p.id);
+                if (!admins.includes(sender)) {
+                    await socket.sendMessage(from, { delete: msg.key }); // Apaga link
+                    await socket.groupParticipantsUpdate(from, [sender], "remove"); // Bane
+                    return socket.sendMessage(from, { text: "🔴 *SISTEMA DE SEGURANÇA* 🔴\n\nLink detectado. Usuário banido automaticamente." });
+                }
+            }
+
             const args = text.split(" ");
             const command = args[0];
             const query = text.slice(command.length).trim();
 
-            // MENU DE COMANDOS
+            // --- MENU PROFISSIONAL ---
             if (command === "!menu") {
-                const menu = `--- 🎹 JACKSON BEATZ V3 ---
-
-*PRODUÇÃO (YOUTUBE):*
-!drums [estilo] - Busca packs de bateria (Ex: !drums trap)
-!vst [nome] - Busca plugins (Ex: !vst piano)
-!foto [nome] - Foto da capa de um vídeo
-!yt [busca] - Link de qualquer vídeo
-
-*ADMINISTRAÇÃO:*
-!ban - Remover alguém (marcar a pessoa)
-!link - Link de convite do grupo`;
-                await socket.sendMessage(from, { text: menu });
+                const menuPro = `╔═════ 🔵 *JACKSON BEATZ V3* 🔵 ═════╗
+║
+║ 🔴 *PRODUÇÃO & SOFTWARE*
+║ ◽ !flpc - FL Studio para PC
+║ ◽ !flmobile - FL Studio Mobile
+║ ◽ !bandlab - Tudo sobre BandLab
+║ ◽ !voloco - Links do Voloco
+║ ◽ !drums [estilo] - Packs de Bateria
+║ ◽ !vst [nome] - Plugins Musicais
+║
+║ ⚪ *UTILITÁRIOS*
+║ ◽ !foto [nome] - Capa de vídeo
+║ ◽ !yt [busca] - Link direto YouTube
+║
+║ 🔵 *MODERAÇÃO (ADMIN)*
+║ ◽ !ban - Remover infrator
+║ ◽ !link - Link do Grupo
+║
+╚═════════════════════════╝`;
+                await socket.sendMessage(from, { text: menuPro });
             }
 
-            // COMANDO !DRUMS FLEXÍVEL
+            // --- BUSCAS ESPECÍFICAS (FL STUDIO / BANDLAB / VOLOCO) ---
+            if (command === "!flpc") {
+                const s = await yts("FL Studio PC full version cracked tutorial 2024");
+                await socket.sendMessage(from, { text: `💻 *FL STUDIO PC:* \n\n${s.videos[0].title}\n${s.videos[0].url}` });
+            }
+
+            if (command === "!flmobile") {
+                const s = await yts("FL Studio Mobile ultima versão apk download");
+                await socket.sendMessage(from, { text: `📱 *FL STUDIO MOBILE:* \n\n${s.videos[0].title}\n${s.videos[0].url}` });
+            }
+
+            if (command === "!bandlab" || command === "!voloco") {
+                const s = await yts(`${command.slice(1)} tutorial download free`);
+                await socket.sendMessage(from, { text: `🎵 *BUSCA MUSICAL:* \n\n${s.videos[0].title}\n${s.videos[0].url}` });
+            }
+
+            // --- COMANDOS DE BUSCA GERAL ---
             if (command === "!drums") {
-                // Se o usuário não digitar o estilo, busca packs grátis gerais
-                const buscaDrums = query ? `drum kit ${query} free download` : "best free drum kits 2024 pack";
-                await socket.sendMessage(from, { text: `🔍 Procurando Drums de *${query || 'Geral'}* no YouTube...` });
-                
-                const search = await yts(buscaDrums);
-                if (search.videos[0]) {
-                    const v = search.videos[0];
-                    await socket.sendMessage(from, { text: `🥁 *DRUM KIT ENCONTRADO:* \n\n*Título:* ${v.title}\n*Canal:* ${v.author.name}\n*Link:* ${v.url}` });
-                } else {
-                    await socket.sendMessage(from, { text: "❌ Não encontrei nenhum pack para este estilo." });
-                }
+                const s = await yts(query ? `drum kit ${query} free` : "best drum kits 2026");
+                await socket.sendMessage(from, { text: `🥁 *DRUMS:* ${s.videos[0].url}` });
             }
 
-            // COMANDO !VST FLEXÍVEL
-            if (command === "!vst") {
-                const buscaVst = query ? `best free ${query} vst plugin` : "top free vst plugins 2024";
-                const search = await yts(buscaVst);
-                if (search.videos[0]) {
-                    const v = search.videos[0];
-                    await socket.sendMessage(from, { text: `🎹 *VST ENCONTRADO:* \n\n*Título:* ${v.title}\n*Link:* ${v.url}` });
-                }
-            }
-
-            // BUSCA GERAL
-            if (command === "!yt") {
-                if (!query) return;
-                const search = await yts(query);
-                if (search.videos[0]) {
-                    await socket.sendMessage(from, { text: `📺 *YouTube:* \n\n${search.videos[0].title}\n${search.videos[0].url}` });
-                }
-            }
-
-            // FOTO
             if (command === "!foto") {
-                const search = await yts(query);
-                if (search.videos[0]) {
-                    await socket.sendMessage(from, { image: { url: search.videos[0].thumbnail }, caption: `*Capa:* ${search.videos[0].title}` });
-                }
+                const s = await yts(query);
+                await socket.sendMessage(from, { image: { url: s.videos[0].thumbnail }, caption: `🔵 *Capa Encontrada:* ${s.videos[0].title}` });
             }
 
-            // MODERAÇÃO
-            if ((command === "!ban" || command === "!remover") && isGroup) {
+            if (command === "!yt") {
+                const s = await yts(query);
+                await socket.sendMessage(from, { text: `📺 *YouTube:* ${s.videos[0].url}` });
+            }
+
+            // --- MODERAÇÃO ---
+            if (command === "!ban" && isGroup) {
                 let users = msg.message.extendedTextMessage?.contextInfo?.mentionedJid || [msg.message.extendedTextMessage?.contextInfo?.participant];
-                if (!users[0]) return;
-                await socket.groupParticipantsUpdate(from, users, "remove");
-                await socket.sendMessage(from, { text: "✅ Utilizador removido." });
+                if (users[0]) {
+                    await socket.groupParticipantsUpdate(from, users, "remove");
+                    await socket.sendMessage(from, { text: "🔴 Removido com sucesso." });
+                }
             }
 
         } catch (e) { console.log(e); }
