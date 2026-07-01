@@ -72,14 +72,7 @@ async function startBot() {
             const video = search.videos[0];
             if (video) {
                 await socket.sendMessage(from, { image: { url: video.thumbnail }, caption: `*Resultado:* ${video.title}` });
-            }
-        }
-    
-    // COMANDO !FOTO (EXEMPLO)
-    // =========================
-    if (text.startsWith("!foto")) {
-        await socket.sendMessage(from, {
-            text: "📸 Foto recebida!"
+        
         });
     }
 
