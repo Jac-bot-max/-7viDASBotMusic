@@ -1,14 +1,6 @@
-{
-  "name": "jackson-bot",
-  "version": "1.0.0",
-  "description": "WhatsApp Bot",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
+"dependencies": {
     "@whiskeysockets/baileys": "^6.6.0",
     "pino": "^8.16.1",
+    "mongoose": "^8.0.0",
     "qrcode-terminal": "^0.12.0"
   }
-}
