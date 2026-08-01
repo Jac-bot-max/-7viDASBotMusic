@@ -1,7 +1,7 @@
 {
-  "name": "jackson-bot",
-  "version": "1.0.0",
-  "description": "WhatsApp Bot",
+  "name": "jackson-bot-elite",
+  "version": "2.0.0",
+  "description": "Bot Profissional Jackson AI",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
@@ -10,6 +10,8 @@
     "@whiskeysockets/baileys": "^6.6.0",
     "mongoose": "^8.0.0",
     "pino": "^8.16.1",
-    "qrcode-terminal": "^0.12.0"
+    "axios": "^1.6.0",
+    "wa-sticker-formatter": "^4.4.4",
+    "fluent-ffmpeg": "^2.1.2"
   }
 }
