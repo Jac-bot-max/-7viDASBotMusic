@@ -1,9 +1,10 @@
-const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion, DisconnectReason } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion, DisconnectReason, downloadContentFromMessage } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const fs = require("fs");
 const http = require("http");
+const { Sticker, StickerTypes } = require('wa-sticker-formatter');
 
-// Servidor de Monitoramento
+// Monitor de sobrevivência Render
 http.createServer((req, res) => res.end('Jackson AI Supreme Online')).listen(process.env.PORT || 3000);
 
 async function startBot() {
@@ -21,11 +22,29 @@ async function startBot() {
         printQRInTerminal: false,
         auth: state,
         browser: ["Jackson AI Pro", "MacOS", "3.0.0"],
-        syncFullHistory: false,
-        linkPreview: null
+        syncFullHistory: false
     });
 
     conn.ev.on('creds.update', saveCreds);
+
+    // --- 🏠 SISTEMA DE BOAS-VINDAS ---
+    conn.ev.on('group-participants.update', async (anu) => {
+        try {
+            if (anu.action == 'add') {
+                const metadata = await conn.groupMetadata(anu.id);
+                for (let num of anu.participants) {
+                    let welcomeMsg = `┏━━━━━━━  『 *BEM-VINDO(A)* 』 ━━━━━━━┓\n┃\n┃ 👋 Olá @${num.split('@')[0]}\n┃ ✨ Bem-vindo(a) ao grupo: \n┃ *${metadata.subject}*\n┃\n┃ 🤖 Sou a *JACKSON AI*, sua moderadora.\n┃ 📜 Por favor, respeite as regras do grupo.\n┃ 💡 Digite *.menu* para conhecer minhas funções.\n┃\n┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
+                    
+                    await conn.sendMessage(anu.id, { 
+                        text: welcomeMsg, 
+                        mentions: [num] 
+                    });
+                }
+            }
+        } catch (err) {
+            console.log("Erro no Boas-Vindas: ", err);
+        }
+    });
 
     conn.ev.on('messages.upsert', async m => {
         const msg = m.messages[0];
@@ -33,108 +52,113 @@ async function startBot() {
         
         const from = msg.key.remoteJid;
         const type = Object.keys(msg.message)[0];
-        const body = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+        const body = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || "";
         const prefix = ".";
+        const isGroup = from.endsWith('@g.us');
 
-        // --- REAÇÃO AUTOMÁTICA A ÁUDIO ---
+        // --- INFO DE GRUPO ---
+        const groupMetadata = isGroup ? await conn.groupMetadata(from) : null;
+        const participants = isGroup ? groupMetadata.participants : [];
+        const groupAdmins = isGroup ? participants.filter(v => v.admin !== null).map(v => v.id) : [];
+        const isBotAdmin = isGroup ? groupAdmins.includes(conn.user.id.split(':')[0] + '@s.whatsapp.net') : false;
+        const isSenderAdmin = isGroup ? groupAdmins.includes(msg.key.participant) : false;
+
+        // --- 🚨 MODERAÇÃO AUTOMÁTICA 🚨 ---
+        if (isGroup && isBotAdmin && !isSenderAdmin) {
+            // Detectar Links e Menções Externas
+            if (body.includes('chat.whatsapp.com') || body.includes('whatsapp.com/channel') || body.includes('/status/')) {
+                await conn.sendMessage(from, { delete: msg.key });
+                return conn.sendMessage(from, { text: "❌ *SEGURANÇA:* Links e Status não são permitidos. Removido." });
+            }
+            // Detectar menção abusiva ao ID do grupo
+            if (body.includes('@' + from.split('@')[0])) {
+                await conn.sendMessage(from, { delete: msg.key });
+            }
+        }
+
+        // --- REAÇÃO A ÁUDIO ---
         if (type === 'audioMessage') {
-            await conn.sendMessage(from, { text: '🎵 * Jackson AI Audio System* \n\nObrigado por compartilhar esta obra! Nossa equipe de engenharia sonora vai analisar o espectro deste áudio em breve. 🎧', quoted: msg });
             await conn.sendMessage(from, { react: { text: "🎧", key: msg.key } });
+            return conn.sendMessage(from, { text: '🎵 *Jackson AI Audio System* \n\nObrigado por compartilhar! Um dos nossos engenheiros vai analisar esta obra.', quoted: msg });
         }
 
         if (!body.startsWith(prefix)) return;
         const command = body.slice(1).trim().split(/ +/).shift().toLowerCase();
         const args = body.trim().split(/ +/).slice(1);
 
-        // Lógica de Adm
-        const groupMetadata = from.endsWith('@g.us') ? await conn.groupMetadata(from) : null;
-        const groupAdmins = groupMetadata ? groupMetadata.participants.filter(v => v.admin !== null).map(v => v.id) : [];
-        const isSenderAdmin = groupAdmins.includes(msg.key.participant);
-        const isBotAdmin = groupAdmins.includes(conn.user.id.split(':')[0] + '@s.whatsapp.net');
-
-        // --- COMANDOS ---
+        // --- COMANDOS REAIS ---
         switch (command) {
             case 'menu':
-            case 'help':
                 const menuSupremo = `
 ┏━━━━━━━  『 *JACKSON AI* 』 ━━━━━━━┓
 ┃
 ┃  🚀 *ESTADO:* 24H ONLINE
-┃  👑 *ENGINE:* SUPREME NEURAL V11
-┃  🌐 *SERVER:* CLOUD RENDER PRO
+┃  👑 *ENGINE:* SUPREME NEURAL V12
 ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃  『 *MODERAÇÃO & GRUPO* 』
+┃  『 *MODERAÇÃO REAL* 』
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ┃ 🛠️ .marcar (Tag Geral)
-┃ 🛠️ .ban (Remover Infrator)
-┃ 🛠️ .warn (Sistema de Aviso)
-┃ 🛠️ .del (Apagar Mensagem)
-┃ 🛠️ .infogrupo (Scan Geral)
-┃ 🛠️ .infoadm (Hierarquia)
-┃ 🛠️ .antilink (On/Off)
-┃ 🛠️ .antitrava (Proteção)
-┃ 🛠️ .promover (Dar Admin)
-┃ 🛠️ .rebaixar (Tirar Admin)
+┃ 🛠️ .ban (@membro)
+┃ 🛠️ .promover (@membro)
+┃ 🛠️ .rebaixar (@membro)
+┃ 🛠️ .del (Responder msg)
+┃ 🛠️ .infogrupo (Scan)
 ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃  『 *ENGENHARIA DE ÁUDIO* 』
+┃  『 *CRIATIVIDADE REAL* 』
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃ 🎤 .mastervoz (Auto-Tune/Master)
-┃ 🎚️ .masterbeat (Limiter/Punch)
-┃ ✂️ .separar (Voz/Drums/Bass)
-┃ 🔊 .reverb (Efeito de Sala)
-┃ 📻 .delay (Correspondência)
-┃ 🎹 .equalizar (EQ Profissional)
-┃ 🗜️ .compressor (Voz na Cara)
-┃ 🔥 .saturar (Calor Analógico)
-┃ 🎧 .mixar (Glue/Cola de Voz)
+┃ ✨ .s (Foto em Figurinha)
+┃ ✨ .sticker (Figurinha Full)
 ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃  『 *IA & CRIATIVIDADE* 』
+┃  『 *SIMULAÇÕES (BEAUTY)* 』
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃ 🧠 .ia (Cérebro Artificial)
-┃ 🎵 .criar (Gerar Música)
-┃ 📝 .letra (Compor Poesia)
-┃ ✨ .sticker (Figurinhas)
-┃ 🖼️ .imagem (Gerar Fotos)
-┃ 🎙️ .clonar (Clone de Voz)
-┃ 🔄 .transcrever (Áudio p/ Texto)
+┃ 🎤 .mastervoz | 🎚️ .masterbeat 
+┃ ✂️ .separar | 🎵 .criar | 🧠 .ia
 ┃
-┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃  『 *UTILITÁRIOS PRO* 』
-┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃ 📡 .ping (Velocidade)
-┃ 🔐 .key (Gerar Sessão ID)
-┃ ⏳ .runtime (Tempo Ativo)
-┃ 👤 .owner (Falar com Dono)
-┃ 📊 .stats (Uso da CPU)
-┃
-┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-   *Jackson AI - O Futuro é Agora*`;
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`;
                 await conn.sendMessage(from, { text: menuSupremo });
+                break;
+
+            case 's':
+            case 'sticker':
+                if (type === 'imageMessage') {
+                    const stream = await downloadContentFromMessage(msg.message.imageMessage, 'image');
+                    let buffer = Buffer.from([]);
+                    for await(const chunk of stream) { buffer = Buffer.concat([buffer, chunk]); }
+                    const sticker = new Sticker(buffer, {
+                        pack: 'Jackson AI Pack',
+                        author: 'Supreme Bot',
+                        type: StickerTypes.FULL,
+                        quality: 70
+                    });
+                    await conn.sendMessage(from, await sticker.toMessage());
+                } else {
+                    conn.sendMessage(from, { text: "Envie uma foto com a legenda *.s*" });
+                }
                 break;
 
             case 'marcar':
                 if (!isSenderAdmin) return;
-                let aviso = `📢 *AVISO SUPREMO - JACKSON AI*\n\n${args.join(" ") || "Olá família, precisamos de mais membros! Compartilhem o grupo nas redes sociais!"}\n\n`;
-                const mems = groupMetadata.participants;
-                for (let p of mems) { aviso += `@${p.id.split('@')[0]} `; }
-                await conn.sendMessage(from, { text: aviso, mentions: mems.map(a => a.id) });
+                let aviso = `📢 *AVISO SUPREMO*\n\n${args.join(" ") || "Olá família, compartilhem o grupo!"}\n\n`;
+                for (let p of participants) { aviso += `@${p.id.split('@')[0]} `; }
+                await conn.sendMessage(from, { text: aviso, mentions: participants.map(a => a.id) });
                 break;
 
-            case 'ping':
-                const start = Date.now();
-                await conn.sendMessage(from, { text: "Calculando latência... ⚡" });
-                const end = Date.now();
-                await conn.sendMessage(from, { text: `🚀 *Velocidade de Resposta:* ${end - start}ms` });
+            case 'ban':
+                if (!isGroup || !isSenderAdmin || !isBotAdmin) return;
+                const victim = msg.message.extendedTextMessage?.contextInfo?.mentionedJid[0];
+                if (!victim) return conn.sendMessage(from, { text: "Marque quem deseja banir." });
+                await conn.groupParticipantsUpdate(from, [victim], 'remove');
+                conn.sendMessage(from, { text: "👢 Membro expulso." });
                 break;
         }
     });
 
     conn.ev.on('connection.update', (update) => {
         const { connection } = update;
-        if (connection === 'open') console.log("✅ JACKSON AI: SISTEMA OPERACIONAL!");
+        if (connection === 'open') console.log("✅ JACKSON AI SUPREME V12 ONLINE!");
         if (connection === 'close') startBot();
     });
 }
