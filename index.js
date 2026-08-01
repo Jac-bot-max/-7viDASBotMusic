@@ -1,130 +1,125 @@
-const { default: makeWASocket, useMultiFileAuthState, delay, jidDecode, MessageType, ContentType } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
 const mongoose = require("mongoose");
 const pino = require("pino");
 const http = require("http");
-const { Sticker, StickerTypes } = require('wa-sticker-formatter');
 
 // --- CONFIGURAÇÃO ---
-const mongoURL = "mongodb+srv://Jackson:JacksonBot2024@cluster0.qrdsoog.mongodb.net/?retryWrites=true&w=majority"; 
+const mongoURL = process.env.MONGODB_URL; 
+const phoneNumber = "258865560063"; 
 const prefix = "."; 
-const owner = "258865560063@s.whatsapp.net";
-let aviso_db = {}; // Banco de avisos temporário
 
-http.createServer((req, res) => { res.end('Jackson AI Pro Ativo'); }).listen(process.env.PORT || 3000);
+// Servidor para o Render não derrubar o bot
+const port = process.env.PORT || 3000;
+http.createServer((req, res) => {
+    res.end('Jackson AI Online e Operacional!');
+}).listen(port);
 
 async function startBot() {
-    await mongoose.connect(mongoURL);
-    const { state, saveCreds } = await useMultiFileAuthState('session');
+    try {
+        await mongoose.connect(mongoURL);
+        console.log("✅ BANCO DE DADOS: CONECTADO!");
 
-    const conn = makeWASocket({
-        logger: pino({ level: 'silent' }),
-        auth: state,
-        printQRInTerminal: false,
-        browser: ["Jackson AI Elite", "Chrome", "1.0.0"]
-    });
+        const { state, saveCreds } = await useMultiFileAuthState('session');
+        const { version } = await fetchLatestBaileysVersion();
 
-    // --- ANTI-TRAVA (Proteção de Mensagens Gigantes) ---
-    conn.ev.on('messages.upsert', async m => {
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
+        const conn = makeWASocket({
+            version,
+            logger: pino({ level: 'silent' }),
+            printQRInTerminal: false,
+            auth: state,
+            browser: ["Jackson AI", "Chrome", "1.0.0"]
+        });
 
-        const from = msg.key.remoteJid;
-        const isGroup = from.endsWith('@g.us');
-        const type = Object.keys(msg.message)[0];
-        const body = (type === 'conversation') ? msg.message.conversation : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text : (type === 'imageMessage' || type === 'videoMessage') ? msg.message[type].caption : '';
-        
-        // Bloqueio de mensagens muito longas (Anti-trava)
-        if (isGroup && body.length > 4000) {
-            await conn.sendMessage(from, { delete: msg.key });
-            return conn.sendMessage(from, { text: "⚠️ Mensagem suspeita de trava removida." });
+        // --- MONITOR DE MENSAGENS (O CÉREBRO) ---
+        conn.ev.on('messages.upsert', async m => {
+            const msg = m.messages[0];
+            if (!msg.message || msg.key.fromMe) return;
+
+            const from = msg.key.remoteJid;
+            const type = Object.keys(msg.message)[0];
+            const body = (type === 'conversation') ? msg.message.conversation : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text : (type === 'imageMessage' || type === 'videoMessage') ? msg.message[type].caption : '';
+            
+            // 🎵 REAÇÃO A ÁUDIO
+            if (type === 'audioMessage') {
+                return conn.sendMessage(from, { text: "Obrigado por compartilhar esta obra, um dos nossos vai analisar. 🎵", quoted: msg });
+            }
+
+            if (!body.startsWith(prefix)) return;
+
+            const command = body.slice(prefix.length).trim().split(/ +/).shift().toLowerCase();
+            const args = body.trim().split(/ +/).slice(1);
+
+            // Lógica de Adm
+            const groupMetadata = from.endsWith('@g.us') ? await conn.groupMetadata(from) : null;
+            const groupAdmins = groupMetadata ? groupMetadata.participants.filter(v => v.admin !== null).map(v => v.id) : [];
+            const isSenderAdmin = groupAdmins.includes(msg.key.participant);
+            const isBotAdmin = groupAdmins.includes(conn.user.id.split(':')[0] + '@s.whatsapp.net');
+
+            switch (command) {
+                case 'menu':
+                    const menuTexto = `
+┌──────────────────────────┐
+│      JACKSON AI 🎵       │
+│                          │
+│  .infogrupo (Info atual) │
+│  .infoadm (Lista Adms)   │
+│  .marcar (Aviso Geral)   │
+│  .ban (Remover membro)   │
+│  .del (Apagar msg)       │
+│                          │
+│  Status: 🟢 24h Ativo    │
+└──────────────────────────┘`;
+                    await conn.sendMessage(from, { text: menuTexto });
+                    break;
+
+                case 'infogrupo':
+                    if (!groupMetadata) return;
+                    conn.sendMessage(from, { text: `🏠 *GRUPO:* ${groupMetadata.subject}\n👥 *MEMBROS:* ${groupMetadata.participants.length}` });
+                    break;
+
+                case 'infoadm':
+                    if (!groupMetadata) return;
+                    let list = "👮‍♂️ *ADMINS DO GRUPO:*\n\n";
+                    groupAdmins.forEach(id => list += `• @${id.split('@')[0]}\n`);
+                    conn.sendMessage(from, { text: list, mentions: groupAdmins });
+                    break;
+
+                case 'marcar':
+                    if (!isSenderAdmin) return;
+                    let texto = `📢 *AVISO GERAL*\n\n${args.join(" ") || "Olá família, precisamos de mais membros! Compartilhem o grupo!"}\n\n`;
+                    groupMetadata.participants.forEach(p => texto += `@${p.id.split('@')[0]} `);
+                    conn.sendMessage(from, { text: texto, mentions: groupMetadata.participants.map(p => p.id) });
+                    break;
+
+                case 'ban':
+                    if (!isSenderAdmin || !isBotAdmin) return;
+                    const victim = msg.message.extendedTextMessage?.contextInfo?.mentionedJid[0];
+                    if (!victim) return conn.sendMessage(from, { text: "Marque quem deseja banir." });
+                    await conn.groupParticipantsUpdate(from, [victim], 'remove');
+                    conn.sendMessage(from, { text: "👢 Usuário removido." });
+                    break;
+            }
+        });
+
+        // Evento de conexão
+        conn.ev.on('connection.update', async (update) => {
+            const { connection } = update;
+            if (connection === 'open') console.log("✅ WHATSAPP: CONECTADO!");
+            if (connection === 'close') setTimeout(startBot, 5000);
+        });
+
+        conn.ev.on('creds.update', saveCreds);
+
+        // Pedir código se deslogar
+        if (!conn.authState.creds.registered) {
+            await delay(10000);
+            const code = await conn.requestPairingCode(phoneNumber);
+            console.log(`\n====================================\nCODIGO: ${code}\n====================================\n`);
         }
 
-        // --- REAÇÃO A ÁUDIOS ---
-        if (type === 'audioMessage') {
-            return conn.sendMessage(from, { text: "Obrigado por compartilhar esta obra, um dos nossos vai analisar. 🎵", quoted: msg });
-        }
-
-        const isCmd = body.startsWith(prefix);
-        const command = isCmd ? body.slice(1).trim().split(/ +/).shift().toLowerCase() : null;
-        const args = body.trim().split(/ +/).slice(1);
-
-        // --- INFO ADMINS ---
-        const groupMetadata = isGroup ? await conn.groupMetadata(from) : null;
-        const participants = isGroup ? groupMetadata.participants : [];
-        const groupAdmins = isGroup ? participants.filter(v => v.admin !== null).map(v => v.id) : [];
-        const isBotAdmin = isGroup ? groupAdmins.includes(conn.user.id.split(':')[0] + '@s.whatsapp.net') : false;
-        const isSenderAdmin = isGroup ? groupAdmins.includes(msg.key.participant) : false;
-
-        // --- ANTI-LINK ---
-        if (isGroup && isBotAdmin && !isSenderAdmin && (body.includes('chat.whatsapp.com') || body.includes('http'))) {
-            await conn.sendMessage(from, { delete: msg.key });
-            return conn.sendMessage(from, { text: "❌ Links proibidos! Use .warn para avisar." });
-        }
-
-        if (!isCmd) return;
-
-        switch (command) {
-            case 'ia': // Resposta com Inteligência Artificial
-                if (!args[0]) return conn.sendMessage(from, { text: "Diga algo para eu pensar..." });
-                conn.sendMessage(from, { text: "🧠 Deixe-me ver... " + args.join(" ") + "\n\n(IA processando sua resposta...)" });
-                // Aqui você pode integrar uma API real do GPT se quiser
-                break;
-
-            case 'sticker':
-            case 's': // Criação de Figurinha
-                if (type === 'imageMessage') {
-                    const buffer = await conn.downloadMediaMessage(msg);
-                    const sticker = new Sticker(buffer, {
-                        pack: 'Jackson AI Pack',
-                        author: 'Bot Jackson',
-                        type: StickerTypes.FULL,
-                        categories: ['🤩', '🎉'],
-                        id: '12345',
-                        quality: 50,
-                    });
-                    conn.sendMessage(from, await sticker.toMessage());
-                } else {
-                    conn.sendMessage(from, { text: "Envie uma imagem com a legenda *.sticker*" });
-                }
-                break;
-
-            case 'warn': // Sistema de Aviso
-                if (!isGroup || !isSenderAdmin) return;
-                const target = msg.message.extendedTextMessage?.contextInfo?.mentionedJid[0];
-                if (!target) return conn.sendMessage(from, { text: "Marque o infrator." });
-                aviso_db[target] = (aviso_db[target] || 0) + 1;
-                if (aviso_db[target] >= 3) {
-                    await conn.groupParticipantsUpdate(from, [target], 'remove');
-                    conn.sendMessage(from, { text: `🚫 @${target.split('@')[0]} atingiu 3 avisos e foi banido!`, mentions: [target] });
-                } else {
-                    conn.sendMessage(from, { text: `⚠️ @${target.split('@')[0]}, você recebeu um aviso! (${aviso_db[target]}/3)`, mentions: [target] });
-                }
-                break;
-
-            case 'ban':
-                if (!isGroup || !isSenderAdmin) return;
-                const victim = msg.message.extendedTextMessage?.contextInfo?.mentionedJid[0];
-                await conn.groupParticipantsUpdate(from, [victim], 'remove');
-                conn.sendMessage(from, { text: "👢 Removido pelo sistema de segurança." });
-                break;
-
-            case 'marcar':
-                if (!isGroup || !isSenderAdmin) return;
-                let m_text = `📢 *MENSAGEM DO ADM*\n\n${args.join(" ") || "Olá família, compartilhem o grupo!"}\n\n`;
-                participants.forEach(p => m_text += `@${p.id.split('@')[0]} `);
-                conn.sendMessage(from, { text: m_text, mentions: participants.map(p => p.id) });
-                break;
-        }
-    });
-
-    conn.ev.on('group-participants.update', async (anu) => {
-        if (anu.action == 'add') {
-            conn.sendMessage(anu.id, { text: `✨ Bem-vindo(a) @${anu.participants[0].split('@')[0]}! Sou a Jackson AI, sua moderadora.`, mentions: anu.participants });
-        }
-    });
-
-    conn.ev.on('creds.update', saveCreds);
-    conn.ev.on('connection.update', (up) => { if (up.connection === 'close') startBot(); });
+    } catch (err) {
+        console.log("❌ ERRO:", err.message);
+    }
 }
 
 startBot();
