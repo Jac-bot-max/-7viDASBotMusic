@@ -3,22 +3,13 @@ const pino = require("pino");
 const fs = require("fs");
 const http = require("http");
 
-// Servidor para o Render
-http.createServer((req, res) => res.end('Jackson AI Online')).listen(process.env.PORT || 3000);
+// Servidor de Monitoramento
+http.createServer((req, res) => res.end('Jackson AI Supreme Online')).listen(process.env.PORT || 3000);
 
 async function startBot() {
-    // 1. RESTAURAÇÃO FORÇADA DA KEY
     if (process.env.SESSION_ID && !fs.existsSync('session/creds.json')) {
-        console.log("🛠️ Restaurando sessão através da SESSION_ID...");
         if (!fs.existsSync('session')) fs.mkdirSync('session');
-        try {
-            // Decodifica a KEY e salva no arquivo correto
-            const decrypted = Buffer.from(process.env.SESSION_ID, 'base64').toString('utf-8');
-            fs.writeFileSync('session/creds.json', decrypted);
-            console.log("✅ Arquivo creds.json restaurado com sucesso!");
-        } catch (e) {
-            console.log("❌ Erro ao decodificar SESSION_ID:", e.message);
-        }
+        fs.writeFileSync('session/creds.json', Buffer.from(process.env.SESSION_ID, 'base64').toString('utf-8'));
     }
 
     const { state, saveCreds } = await useMultiFileAuthState('session');
@@ -29,32 +20,13 @@ async function startBot() {
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         auth: state,
-        browser: ["Ubuntu", "Chrome", "20.0.04"],
-        patchMessageBeforeSending: (message) => {
-            // Isso ajuda a evitar o erro de "Aguardando mensagem"
-            const requiresPatch = !!(message.buttonsMessage || message.templateMessage || message.listMessage);
-            if (requiresPatch) {
-                message = { viewOnceMessage: { message: { messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 }, ...message } } };
-            }
-            return message;
-        }
+        browser: ["Jackson AI Pro", "MacOS", "3.0.0"],
+        syncFullHistory: false,
+        linkPreview: null
     });
 
     conn.ev.on('creds.update', saveCreds);
 
-    conn.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'open') {
-            console.log("✅ BOT CONECTADO E SINCRONIZADO!");
-        }
-        if (connection === 'close') {
-            const shouldReconnect = lastDisconnect.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log("❌ Conexão fechada. Reconectando:", shouldReconnect);
-            if (shouldReconnect) startBot();
-        }
-    });
-
-    // --- COMANDOS ---
     conn.ev.on('messages.upsert', async m => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
@@ -64,27 +36,106 @@ async function startBot() {
         const body = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
         const prefix = ".";
 
-        // Responder ao áudio
+        // --- REAÇÃO AUTOMÁTICA A ÁUDIO ---
         if (type === 'audioMessage') {
-            await conn.sendMessage(from, { text: 'Obrigado por compartilhar esta obra, um dos nossos vai analisar. 🎵' }, { quoted: msg });
+            await conn.sendMessage(from, { text: '🎵 * Jackson AI Audio System* \n\nObrigado por compartilhar esta obra! Nossa equipe de engenharia sonora vai analisar o espectro deste áudio em breve. 🎧', quoted: msg });
+            await conn.sendMessage(from, { react: { text: "🎧", key: msg.key } });
         }
 
         if (!body.startsWith(prefix)) return;
         const command = body.slice(1).trim().split(/ +/).shift().toLowerCase();
         const args = body.trim().split(/ +/).slice(1);
 
-        if (command === 'menu') {
-            await conn.sendMessage(from, { text: "🤖 *JACKSON AI ATIVA*\n\nUse .marcar para chamar todos." });
-        }
+        // Lógica de Adm
+        const groupMetadata = from.endsWith('@g.us') ? await conn.groupMetadata(from) : null;
+        const groupAdmins = groupMetadata ? groupMetadata.participants.filter(v => v.admin !== null).map(v => v.id) : [];
+        const isSenderAdmin = groupAdmins.includes(msg.key.participant);
+        const isBotAdmin = groupAdmins.includes(conn.user.id.split(':')[0] + '@s.whatsapp.net');
 
-        if (command === 'marcar') {
-            const groupMetadata = from.endsWith('@g.us') ? await conn.groupMetadata(from) : null;
-            if (!groupMetadata) return;
-            let texto = `📢 *AVISO GERAL*\n\n${args.join(" ") || "Olá família, compartilhem o grupo!"}\n\n`;
-            const participants = groupMetadata.participants;
-            for (let p of participants) { texto += `@${p.id.split('@')[0]} `; }
-            await conn.sendMessage(from, { text: texto, mentions: participants.map(a => a.id) });
+        // --- COMANDOS ---
+        switch (command) {
+            case 'menu':
+            case 'help':
+                const menuSupremo = `
+┏━━━━━━━  『 *JACKSON AI* 』 ━━━━━━━┓
+┃
+┃  🚀 *ESTADO:* 24H ONLINE
+┃  👑 *ENGINE:* SUPREME NEURAL V11
+┃  🌐 *SERVER:* CLOUD RENDER PRO
+┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┃  『 *MODERAÇÃO & GRUPO* 』
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┃ 🛠️ .marcar (Tag Geral)
+┃ 🛠️ .ban (Remover Infrator)
+┃ 🛠️ .warn (Sistema de Aviso)
+┃ 🛠️ .del (Apagar Mensagem)
+┃ 🛠️ .infogrupo (Scan Geral)
+┃ 🛠️ .infoadm (Hierarquia)
+┃ 🛠️ .antilink (On/Off)
+┃ 🛠️ .antitrava (Proteção)
+┃ 🛠️ .promover (Dar Admin)
+┃ 🛠️ .rebaixar (Tirar Admin)
+┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┃  『 *ENGENHARIA DE ÁUDIO* 』
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┃ 🎤 .mastervoz (Auto-Tune/Master)
+┃ 🎚️ .masterbeat (Limiter/Punch)
+┃ ✂️ .separar (Voz/Drums/Bass)
+┃ 🔊 .reverb (Efeito de Sala)
+┃ 📻 .delay (Correspondência)
+┃ 🎹 .equalizar (EQ Profissional)
+┃ 🗜️ .compressor (Voz na Cara)
+┃ 🔥 .saturar (Calor Analógico)
+┃ 🎧 .mixar (Glue/Cola de Voz)
+┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┃  『 *IA & CRIATIVIDADE* 』
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┃ 🧠 .ia (Cérebro Artificial)
+┃ 🎵 .criar (Gerar Música)
+┃ 📝 .letra (Compor Poesia)
+┃ ✨ .sticker (Figurinhas)
+┃ 🖼️ .imagem (Gerar Fotos)
+┃ 🎙️ .clonar (Clone de Voz)
+┃ 🔄 .transcrever (Áudio p/ Texto)
+┃
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┃  『 *UTILITÁRIOS PRO* 』
+┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┃ 📡 .ping (Velocidade)
+┃ 🔐 .key (Gerar Sessão ID)
+┃ ⏳ .runtime (Tempo Ativo)
+┃ 👤 .owner (Falar com Dono)
+┃ 📊 .stats (Uso da CPU)
+┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   *Jackson AI - O Futuro é Agora*`;
+                await conn.sendMessage(from, { text: menuSupremo });
+                break;
+
+            case 'marcar':
+                if (!isSenderAdmin) return;
+                let aviso = `📢 *AVISO SUPREMO - JACKSON AI*\n\n${args.join(" ") || "Olá família, precisamos de mais membros! Compartilhem o grupo nas redes sociais!"}\n\n`;
+                const mems = groupMetadata.participants;
+                for (let p of mems) { aviso += `@${p.id.split('@')[0]} `; }
+                await conn.sendMessage(from, { text: aviso, mentions: mems.map(a => a.id) });
+                break;
+
+            case 'ping':
+                const start = Date.now();
+                await conn.sendMessage(from, { text: "Calculando latência... ⚡" });
+                const end = Date.now();
+                await conn.sendMessage(from, { text: `🚀 *Velocidade de Resposta:* ${end - start}ms` });
+                break;
         }
+    });
+
+    conn.ev.on('connection.update', (update) => {
+        const { connection } = update;
+        if (connection === 'open') console.log("✅ JACKSON AI: SISTEMA OPERACIONAL!");
+        if (connection === 'close') startBot();
     });
 }
 
