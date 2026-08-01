@@ -1,124 +1,69 @@
-const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
-const mongoose = require("mongoose");
+const { default: makeWASocket, useMultiFileAuthState, delay, disconnectReason } = require("@whiskeysockets/baileys");
 const pino = require("pino");
+const fs = require("fs");
 const http = require("http");
 
-// --- CONFIGURAÇÃO ---
-const mongoURL = process.env.MONGODB_URL; 
-const phoneNumber = "258865560063"; 
-const prefix = "."; 
-
-// Servidor para o Render não derrubar o bot
-const port = process.env.PORT || 3000;
-http.createServer((req, res) => {
-    res.end('Jackson AI Online e Operacional!');
-}).listen(port);
+// Servidor para o Render não dormir
+http.createServer((req, res) => res.end('Jackson AI Online')).listen(process.env.PORT || 3000);
 
 async function startBot() {
-    try {
-        await mongoose.connect(mongoURL);
-        console.log("✅ BANCO DE DADOS: CONECTADO!");
+    // CRIA A SESSÃO
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
-        const { state, saveCreds } = await useMultiFileAuthState('session');
-        const { version } = await fetchLatestBaileysVersion();
+    const conn = makeWASocket({
+        logger: pino({ level: 'silent' }),
+        auth: state,
+        printQRInTerminal: false,
+        browser: ["Jackson AI", "Chrome", "1.0.0"]
+    });
 
-        const conn = makeWASocket({
-            version,
-            logger: pino({ level: 'silent' }),
-            printQRInTerminal: false,
-            auth: state,
-            browser: ["Jackson AI", "Chrome", "1.0.0"]
-        });
+    conn.ev.on('creds.update', saveCreds);
 
-        // --- MONITOR DE MENSAGENS (O CÉREBRO) ---
-        conn.ev.on('messages.upsert', async m => {
-            const msg = m.messages[0];
-            if (!msg.message || msg.key.fromMe) return;
+    conn.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect } = update;
 
-            const from = msg.key.remoteJid;
-            const type = Object.keys(msg.message)[0];
-            const body = (type === 'conversation') ? msg.message.conversation : (type === 'extendedTextMessage') ? msg.message.extendedTextMessage.text : (type === 'imageMessage' || type === 'videoMessage') ? msg.message[type].caption : '';
+        if (connection === 'open') {
+            console.log("✅ BOT ONLINE!");
             
-            // 🎵 REAÇÃO A ÁUDIO
-            if (type === 'audioMessage') {
-                return conn.sendMessage(from, { text: "Obrigado por compartilhar esta obra, um dos nossos vai analisar. 🎵", quoted: msg });
-            }
-
-            if (!body.startsWith(prefix)) return;
-
-            const command = body.slice(prefix.length).trim().split(/ +/).shift().toLowerCase();
-            const args = body.trim().split(/ +/).slice(1);
-
-            // Lógica de Adm
-            const groupMetadata = from.endsWith('@g.us') ? await conn.groupMetadata(from) : null;
-            const groupAdmins = groupMetadata ? groupMetadata.participants.filter(v => v.admin !== null).map(v => v.id) : [];
-            const isSenderAdmin = groupAdmins.includes(msg.key.participant);
-            const isBotAdmin = groupAdmins.includes(conn.user.id.split(':')[0] + '@s.whatsapp.net');
-
-            switch (command) {
-                case 'menu':
-                    const menuTexto = `
-┌──────────────────────────┐
-│      JACKSON AI 🎵       │
-│                          │
-│  .infogrupo (Info atual) │
-│  .infoadm (Lista Adms)   │
-│  .marcar (Aviso Geral)   │
-│  .ban (Remover membro)   │
-│  .del (Apagar msg)       │
-│                          │
-│  Status: 🟢 24h Ativo    │
-└──────────────────────────┘`;
-                    await conn.sendMessage(from, { text: menuTexto });
-                    break;
-
-                case 'infogrupo':
-                    if (!groupMetadata) return;
-                    conn.sendMessage(from, { text: `🏠 *GRUPO:* ${groupMetadata.subject}\n👥 *MEMBROS:* ${groupMetadata.participants.length}` });
-                    break;
-
-                case 'infoadm':
-                    if (!groupMetadata) return;
-                    let list = "👮‍♂️ *ADMINS DO GRUPO:*\n\n";
-                    groupAdmins.forEach(id => list += `• @${id.split('@')[0]}\n`);
-                    conn.sendMessage(from, { text: list, mentions: groupAdmins });
-                    break;
-
-                case 'marcar':
-                    if (!isSenderAdmin) return;
-                    let texto = `📢 *AVISO GERAL*\n\n${args.join(" ") || "Olá família, precisamos de mais membros! Compartilhem o grupo!"}\n\n`;
-                    groupMetadata.participants.forEach(p => texto += `@${p.id.split('@')[0]} `);
-                    conn.sendMessage(from, { text: texto, mentions: groupMetadata.participants.map(p => p.id) });
-                    break;
-
-                case 'ban':
-                    if (!isSenderAdmin || !isBotAdmin) return;
-                    const victim = msg.message.extendedTextMessage?.contextInfo?.mentionedJid[0];
-                    if (!victim) return conn.sendMessage(from, { text: "Marque quem deseja banir." });
-                    await conn.groupParticipantsUpdate(from, [victim], 'remove');
-                    conn.sendMessage(from, { text: "👢 Usuário removido." });
-                    break;
-            }
-        });
-
-        // Evento de conexão
-        conn.ev.on('connection.update', async (update) => {
-            const { connection } = update;
-            if (connection === 'open') console.log("✅ WHATSAPP: CONECTADO!");
-            if (connection === 'close') setTimeout(startBot, 5000);
-        });
-
-        conn.ev.on('creds.update', saveCreds);
-
-        // Pedir código se deslogar
-        if (!conn.authState.creds.registered) {
-            await delay(10000);
-            const code = await conn.requestPairingCode(phoneNumber);
-            console.log(`\n====================================\nCODIGO: ${code}\n====================================\n`);
+            // --- GERADOR DE KEY (SESSÃO) ---
+            // Isso aqui vai imprimir sua KEY no log para você salvar
+            const creds = fs.readFileSync('./auth_info/creds.json');
+            const sessionKey = Buffer.from(creds).toString('base64');
+            console.log(`\n====================================\nSUA KEY (SALVE ISSO):\n\n${sessionKey}\n\n====================================\n`);
         }
 
-    } catch (err) {
-        console.log("❌ ERRO:", err.message);
+        if (connection === 'close') {
+            const reason = lastDisconnect?.error?.output?.statusCode;
+            if (reason !== 401) startBot(); // Reconecta se não for deslogado
+        }
+    });
+
+    // OUVINTE DE MENSAGENS
+    conn.ev.on('messages.upsert', async m => {
+        const msg = m.messages[0];
+        if (!msg.message || msg.key.fromMe) return;
+        const from = msg.key.remoteJid;
+        const body = msg.message.conversation || msg.message.extendedTextMessage?.text || "";
+
+        // RESPOSTA SIMPLES PARA TESTAR
+        if (body.startsWith('.')) {
+            const command = body.slice(1).trim().toLowerCase();
+            if (command === 'menu') {
+                await conn.sendMessage(from, { text: "🤖 Jackson AI Ativo via Key!" });
+            }
+        }
+        
+        if (msg.message.audioMessage) {
+            await conn.sendMessage(from, { text: "Obra de arte recebida! 🎵" });
+        }
+    });
+
+    // PEDIR CÓDIGO SE NÃO TIVER LOGADO
+    if (!conn.authState.creds.registered) {
+        const phoneNumber = "258865560063";
+        await delay(5000);
+        const code = await conn.requestPairingCode(phoneNumber);
+        console.log(`\nCÓDIGO DE PAREAMENTO: ${code}\n`);
     }
 }
 
