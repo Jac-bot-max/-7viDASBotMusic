@@ -1,17 +1,11 @@
 {
-  "name": "jackson-bot-elite",
-  "version": "2.0.0",
-  "description": "Bot Profissional Jackson AI",
+  "name": "jackson-ai-key",
+  "version": "1.0.0",
   "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  },
+  "scripts": { "start": "node index.js" },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.6.0",
-    "mongoose": "^8.0.0",
     "pino": "^8.16.1",
-    "axios": "^1.6.0",
-    "wa-sticker-formatter": "^4.4.4",
-    "fluent-ffmpeg": "^2.1.2"
+    "qrcode-terminal": "^0.12.0"
   }
 }
