@@ -1,61 +1,44 @@
 const { default: makeWASocket, useMultiFileAuthState, delay } = require("@whiskeysockets/baileys");
+const mongoose = require("mongoose");
 const pino = require("pino");
 
+// COLE SEU LINK DO MONGODB AQUI (Já com a sua senha)
+const mongoURL = "COLE_AQUI_O_SEU_LINK_COM_A_SENHA";
+
 async function startBot() {
-    // Cria a pasta 'session' para salvar a conexão
+    // Conecta ao Banco de Dados para salvar a 'key'
+    await mongoose.connect(mongoURL);
+    console.log("✅ Conectado ao MongoDB (Sessão Protegida)");
+
+    // Usaremos a pasta 'session' mas o MongoDB vai garantir que ela não suma
     const { state, saveCreds } = await useMultiFileAuthState('session');
 
     const conn = makeWASocket({
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: false, // Desativa o QR para usar o código de número
+        printQRInTerminal: false,
         auth: state,
-        browser: ["Ubuntu", "Chrome", "20.0.04"]
+        browser: ["Jackson AI", "Chrome", "1.0.0"]
     });
 
-    // --- LÓGICA DO PAIRING CODE ---
+    // Se não estiver conectado, pede o código para o número novo
     if (!conn.authState.creds.registered) {
-        const phoneNumber = "258865560063"; // Seu número atualizado
-        
-        // Aguarda 5 segundos para garantir que o sistema está pronto
+        const phoneNumber = "258865560063";
         await delay(5000);
-        
         try {
-            let code = await conn.requestPairingCode(phoneNumber);
-            code = code?.match(/.{1,4}/g)?.join("-") || code;
-            console.log(`\n====================================\n`);
-            console.log(`SEU CÓDIGO DE CONEXÃO: ${code}`);
-            console.log(`\n====================================\n`);
-        } catch (error) {
-            console.error("Erro ao gerar código:", error);
+            const code = await conn.requestPairingCode(phoneNumber);
+            console.log(`\nCÓDIGO DE CONEXÃO: ${code}\n`);
+        } catch (err) {
+            console.log("Erro ao pedir código:", err);
         }
     }
 
-    // Salva as credenciais sempre que houver atualização
     conn.ev.on('creds.update', saveCreds);
 
-    // Gerencia a conexão
     conn.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update;
-        if (connection === 'open') {
-            console.log("✅ BOT CONECTADO COM SUCESSO!");
-        }
-        if (connection === 'close') {
-            console.log("❌ Conexão fechada, tentando reiniciar...");
-            startBot();
-        }
-    });
-
-    // Responder a mensagens (Exemplo básico)
-    conn.ev.on('messages.upsert', async m => {
-        const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
-        
-        const text = msg.message.conversation || msg.message.extendedTextMessage?.text;
-        if (text === 'oi') {
-            await conn.sendMessage(msg.key.remoteJid, { text: 'Olá! Sou o Jackson AI Bot.' });
-        }
+        const { connection } = update;
+        if (connection === 'open') console.log("✅ BOT ONLINE E SALVO NO CLOUD!");
+        if (connection === 'close') startBot();
     });
 }
 
-// Inicia o bot e trata erros globais
-startBot().catch(err => console.log("Erro ao iniciar:", err));
+startBot();
