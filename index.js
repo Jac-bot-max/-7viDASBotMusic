@@ -1,11 +1,11 @@
-const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion, downloadContentFromMessage } = require("@whiskeysockets/baileys");
+const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion, jidNormalizedUser, downloadContentFromMessage } = require("@whiskeysockets/baileys");
 const pino = require("pino");
 const fs = require("fs");
 const http = require("http");
 const { Sticker, StickerTypes } = require('wa-sticker-formatter');
 
-// Servidor para manter o Render ligado
-http.createServer((req, res) => res.end('Jackson AI Titanium Online')).listen(process.env.PORT || 3000);
+// Servidor Keep-Alive
+http.createServer((req, res) => res.end('Jackson AI Ultra V16')).listen(process.env.PORT || 3000);
 
 async function startBot() {
     if (process.env.SESSION_ID && !fs.existsSync('session/creds.json')) {
@@ -21,102 +21,94 @@ async function startBot() {
         logger: pino({ level: 'silent' }),
         printQRInTerminal: false,
         auth: state,
-        browser: ["Jackson AI", "Chrome", "1.0.0"]
+        browser: ["Jackson AI", "Chrome", "1.0.0"],
+        syncFullHistory: false
     });
 
     conn.ev.on('creds.update', saveCreds);
 
+    // --- EVENTO DE MENSAGENS ---
     conn.ev.on('messages.upsert', async m => {
         const msg = m.messages[0];
         if (!msg.message || msg.key.fromMe) return;
-        
+
         const from = msg.key.remoteJid;
         const type = Object.keys(msg.message)[0];
-        const body = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || "";
-        const prefix = ".";
         const isGroup = from.endsWith('@g.us');
-
         if (!isGroup) return;
 
-        // --- DADOS DE SEGURANÇA ---
+        const body = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message.imageMessage?.caption || "";
+        const prefix = ".";
+        
+        // --- DADOS DE AUTORIDADE ---
         const groupMetadata = await conn.groupMetadata(from);
         const participants = groupMetadata.participants;
         const groupAdmins = participants.filter(v => v.admin !== null).map(v => v.id);
-        const botNumber = conn.user.id.split(':')[0] + '@s.whatsapp.net';
-        const isBotAdmin = groupAdmins.includes(botNumber);
+        const botId = jidNormalizedUser(conn.user.id);
+        const isBotAdmin = groupAdmins.includes(botId);
         const isSenderAdmin = groupAdmins.includes(msg.key.participant);
 
-        // --- 🚨 MODERAÇÃO AUTOMÁTICA (SÓ PARA NÃO-ADMINS) 🚨 ---
+        // --- ANTI-LINK (PROTEÇÃO ATIVA) ---
         if (isBotAdmin && !isSenderAdmin) {
-            // Apaga links
             if (body.includes('chat.whatsapp.com') || body.includes('http')) {
-                return await conn.sendMessage(from, { delete: msg.key });
+                await conn.sendMessage(from, { delete: msg.key });
+                return;
             }
         }
 
-        // --- COMANDOS ---
+        // --- REAÇÃO A ÁUDIO ---
+        if (type === 'audioMessage') {
+            await conn.sendMessage(from, { react: { text: "🎧", key: msg.key } });
+            return conn.sendMessage(from, { text: '🎵 *Analista Jackson AI:* Obra de arte recebida. Aguardando análise da engenharia sonora...', quoted: msg });
+        }
+
         if (!body.startsWith(prefix)) return;
         const command = body.slice(1).trim().split(/ +/).shift().toLowerCase();
         const args = body.trim().split(/ +/).slice(1);
 
-        // Pegar o alvo (quem foi marcado ou respondido)
-        const getTarget = () => {
-            if (msg.message.extendedTextMessage?.contextInfo?.mentionedJid?.length > 0) return msg.message.extendedTextMessage.contextInfo.mentionedJid[0];
-            if (msg.message.extendedTextMessage?.contextInfo?.participant) return msg.message.extendedTextMessage.contextInfo.participant;
-            return null;
-        };
+        // --- AJUDANTE DE ALVO (REPLY OU MENTION) ---
+        const quoted = msg.message.extendedTextMessage?.contextInfo;
+        const target = quoted?.mentionedJid?.[0] || quoted?.participant || (args[0] ? args[0].replace('@', '') + '@s.whatsapp.net' : null);
 
+        // --- COMANDOS ---
         switch (command) {
             case 'menu':
-                const menu = `┏━━━━━『 *JACKSON AI* 』━━━━━┓\n┃\n┃ 🛠️ .marcar | .ban\n┃ 🛠️ .promover | .rebaixar\n┃ 🛠️ .infogrupo | .del\n┃ ✨ .s (figurinha)\n┃\n┗━━━━━━━━━━━━━━━━━━━━━┛`;
-                await conn.sendMessage(from, { text: menu });
-                break;
-
-            case 'infogrupo':
-                const info = `🏠 *DADOS DO GRUPO*\n\n*Nome:* ${groupMetadata.subject}\n*Membros:* ${participants.length}\n*Admins:* ${groupAdmins.length}`;
-                await conn.sendMessage(from, { text: info });
+                const menuTxt = `┏━━━━『 *JACKSON AI V16* 』━━━━┓\n┃\n┃ 🛠️ .marcar | .ban\n┃ 🛠️ .promover | .rebaixar\n┃ 🛠️ .infogrupo | .del\n┃ ✨ .s (Sticker)\n┃\n┗━━━━━━━━━━━━━━━━━━━━━┛`;
+                await conn.sendMessage(from, { text: menuTxt });
                 break;
 
             case 'marcar':
                 if (!isSenderAdmin) return;
                 let texto = `📢 *AVISO GERAL*\n\n${args.join(" ") || "Olá família!"}\n\n`;
-                for (let p of participants) { texto += `@${p.id.split('@')[0]} `; }
+                participants.forEach(p => texto += `@${p.id.split('@')[0]} `);
                 await conn.sendMessage(from, { text: texto, mentions: participants.map(a => a.id) });
                 break;
 
             case 'ban':
-                if (!isBotAdmin || !isSenderAdmin) return conn.sendMessage(from, {text: "Erro: Verifique se eu e você somos ADMS!"});
-                const tBan = getTarget();
-                if (!tBan) return conn.sendMessage(from, {text: "Responda ou marque alguém!"});
-                await conn.groupParticipantsUpdate(from, [tBan], 'remove');
-                await conn.sendMessage(from, { text: "👢 Removido." });
+                if (!isBotAdmin || !isSenderAdmin) return;
+                if (!target) return conn.sendMessage(from, { text: "Marca ou responde a alguém!" });
+                await conn.groupParticipantsUpdate(from, [target], 'remove');
+                await conn.sendMessage(from, { text: "👢 Alvo removido com sucesso." });
                 break;
 
             case 'promover':
                 if (!isBotAdmin || !isSenderAdmin) return;
-                const tPro = getTarget();
-                await conn.groupParticipantsUpdate(from, [tPro], 'promote');
-                await conn.sendMessage(from, { text: "🆙 Promovido!" });
+                if (!target) return;
+                await conn.groupParticipantsUpdate(from, [target], 'promote');
+                await conn.sendMessage(from, { text: "🆙 Agora é Administrador!" });
                 break;
 
             case 'rebaixar':
                 if (!isBotAdmin || !isSenderAdmin) return;
-                const tDem = getTarget();
-                await conn.groupParticipantsUpdate(from, [tDem], 'demote');
-                await conn.sendMessage(from, { text: "⚠️ Rebaixado!" });
+                if (!target) return;
+                await conn.groupParticipantsUpdate(from, [target], 'demote');
+                await conn.sendMessage(from, { text: "⚠️ Rebaixado a membro comum." });
                 break;
 
             case 'del':
                 if (!isBotAdmin || !isSenderAdmin) return;
-                if (!msg.message.extendedTextMessage?.contextInfo?.stanzaId) return;
-                await conn.sendMessage(from, { 
-                    delete: { 
-                        remoteJid: from, 
-                        fromMe: false, 
-                        id: msg.message.extendedTextMessage.contextInfo.stanzaId, 
-                        participant: msg.message.extendedTextMessage.contextInfo.participant 
-                    } 
-                });
+                if (!quoted?.stanzaId) return;
+                await conn.sendMessage(from, { delete: { remoteJid: from, fromMe: false, id: quoted.stanzaId, participant: quoted.participant } });
                 break;
 
             case 's':
@@ -132,8 +124,16 @@ async function startBot() {
         }
     });
 
+    conn.ev.on('group-participants.update', async (anu) => {
+        if (anu.action == 'add') {
+            for (let num of anu.participants) {
+                await conn.sendMessage(anu.id, { text: `👋 Olá @${num.split('@')[0]}! Bem-vindo(a). Digite *.menu* para começar.`, mentions: [num] });
+            }
+        }
+    });
+
     conn.ev.on('connection.update', (u) => {
-        if (u.connection === 'open') console.log("✅ TITANIUM V15 ONLINE!");
+        if (u.connection === 'open') console.log("✅ V16 SUPREME ONLINE!");
         if (u.connection === 'close') startBot();
     });
 }
