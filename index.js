@@ -4,7 +4,7 @@ const fs = require("fs");
 const http = require("http");
 const { Sticker, StickerTypes } = require('wa-sticker-formatter');
 
-// Servidor de Monitoramento
+// Servidor de Monitoramento Render
 http.createServer((req, res) => res.end('Jackson AI Supreme Online')).listen(process.env.PORT || 3000);
 
 async function startBot() {
@@ -23,6 +23,8 @@ async function startBot() {
         auth: state,
         browser: ["Jackson AI Pro", "MacOS", "3.0.0"]
     });
+
+    conn.ev.on('creds.update', saveCreds);
 
     // --- 🏠 SISTEMA DE BOAS-VINDAS ---
     conn.ev.on('group-participants.update', async (anu) => {
@@ -45,7 +47,7 @@ async function startBot() {
         const prefix = ".";
         const isGroup = from.endsWith('@g.us');
 
-        // --- 🚨 MODERAÇÃO AUTOMÁTICA (LINKS/STATUS/MENÇÕES) 🚨 ---
+        // --- 🚨 SEGURANÇA E MODERAÇÃO AUTOMÁTICA 🚨 ---
         if (isGroup) {
             const groupMetadata = await conn.groupMetadata(from);
             const participants = groupMetadata.participants;
@@ -54,10 +56,14 @@ async function startBot() {
             const isSenderAdmin = groupAdmins.includes(msg.key.participant);
 
             if (isBotAdmin && !isSenderAdmin) {
-                // Detectar Links e Menções Externas/Status
+                // 1. Apagar Links e Status de membros comuns
                 if (body.includes('chat.whatsapp.com') || body.includes('whatsapp.com/channel') || body.includes('/status/')) {
                     await conn.sendMessage(from, { delete: msg.key });
                     return conn.sendMessage(from, { text: "❌ *SEGURANÇA:* Links e Status são proibidos aqui." });
+                }
+                // 2. Apagar menção ao ID do grupo (Proteção de Status/Spam)
+                if (body.includes('@' + from.split('@')[0])) {
+                    await conn.sendMessage(from, { delete: msg.key });
                 }
             }
         }
@@ -65,7 +71,7 @@ async function startBot() {
         // --- REAÇÃO A ÁUDIO ---
         if (type === 'audioMessage') {
             await conn.sendMessage(from, { react: { text: "🎧", key: msg.key } });
-            return conn.sendMessage(from, { text: '🎵 *Jackson AI Audio System* \n\nObrigado por compartilhar esta obra! 🎵', quoted: msg });
+            return conn.sendMessage(from, { text: '🎵 *Jackson AI Audio System* \n\nObrigado por compartilhar! Analisando... 🎵', quoted: msg });
         }
 
         if (!body.startsWith(prefix)) return;
@@ -79,11 +85,13 @@ async function startBot() {
 ┏━━━━━━━  『 *JACKSON AI* 』 ━━━━━━━┓
 ┃
 ┃  🚀 *ESTADO:* 24H ONLINE
-┃  👑 *ENGINE:* SUPREME NEURAL V12
+┃  👑 *ENGINE:* SUPREME NEURAL V13
 ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃  『 *MODERAÇÃO* 』
+┃  『 *MODERAÇÃO REAL* 』
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+┃ 🛠️ .infogrupo (Dados do Grupo)
+┃ 🛠️ .infoadm (Lista de Chefes)
 ┃ 🛠️ .marcar (Tag Geral)
 ┃ 🛠️ .ban (@membro)
 ┃ 🛠️ .promover (@membro)
@@ -91,7 +99,7 @@ async function startBot() {
 ┃ 🛠️ .del (Responder msg)
 ┃
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-┃  『 *FIGURINHAS* 』
+┃  『 *CRIATIVIDADE* 』
 ┣━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ┃ ✨ .s (Foto em Figurinha)
 ┃ ✨ .sticker (Figurinha Full)
@@ -100,12 +108,28 @@ async function startBot() {
                 await conn.sendMessage(from, { text: menuSupremo });
                 break;
 
+            case 'infogrupo':
+                if (!isGroup) return;
+                const gMeta = await conn.groupMetadata(from);
+                const infoG = `🏠 *DADOS DO GRUPO*\n\n*Nome:* ${gMeta.subject}\n*ID:* ${from}\n*Membros:* ${gMeta.participants.length}\n*Criado em:* ${new Date(gMeta.creation * 1000).toLocaleString()}`;
+                await conn.sendMessage(from, { text: infoG });
+                break;
+
+            case 'infoadm':
+                if (!isGroup) return;
+                const gMeta2 = await conn.groupMetadata(from);
+                const adms = gMeta2.participants.filter(v => v.admin !== null).map(v => v.id);
+                let listaAdms = "👮‍♂️ *ADMINS DO GRUPO:*\n\n";
+                for (let a of adms) { listaAdms += `• @${a.split('@')[0]}\n`; }
+                await conn.sendMessage(from, { text: listaAdms, mentions: adms });
+                break;
+
             case 's':
             case 'sticker':
                 if (type === 'imageMessage') {
-                    const buffer = await downloadContentFromMessage(msg.message.imageMessage, 'image');
+                    const stream = await downloadContentFromMessage(msg.message.imageMessage, 'image');
                     let chunks = Buffer.from([]);
-                    for await (const chunk of buffer) { chunks = Buffer.concat([chunks, chunk]); }
+                    for await (const chunk of stream) { chunks = Buffer.concat([chunks, chunk]); }
                     const sticker = new Sticker(chunks, {
                         pack: 'Jackson AI Pack',
                         author: 'Supreme Bot',
@@ -124,10 +148,25 @@ async function startBot() {
                 for (let p of metadata.participants) { aviso += `@${p.id.split('@')[0]} `; }
                 await conn.sendMessage(from, { text: aviso, mentions: metadata.participants.map(a => a.id) });
                 break;
+
+            case 'ban':
+                const groupMetadata = await conn.groupMetadata(from);
+                const groupAdmins = groupMetadata.participants.filter(v => v.admin !== null).map(v => v.id);
+                const isBotAdmin = groupAdmins.includes(conn.user.id.split(':')[0] + '@s.whatsapp.net');
+                const isSenderAdmin = groupAdmins.includes(msg.key.participant);
+
+                if (!isGroup || !isSenderAdmin || !isBotAdmin) return;
+                
+                // Pega quem foi marcado ou quem a mensagem respondeu
+                const victim = msg.message.extendedTextMessage?.contextInfo?.mentionedJid[0] || msg.message.extendedTextMessage?.contextInfo?.participant;
+                
+                if (!victim) return conn.sendMessage(from, { text: "Marca alguém ou responde à mensagem dele para banir." });
+                await conn.groupParticipantsUpdate(from, [victim], 'remove');
+                conn.sendMessage(from, { text: "👢 Membro expulso." });
+                break;
         }
     });
 
-    conn.ev.on('creds.update', saveCreds);
     conn.ev.on('connection.update', (update) => {
         if (update.connection === 'open') console.log("✅ JACKSON AI SUPREME ONLINE!");
         if (update.connection === 'close') startBot();
