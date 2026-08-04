@@ -17,7 +17,7 @@ app.listen(port, '0.0.0.0', () => console.log(`✅ Servidor na porta ${port}`));
 if (!global.db) global.db = { warns: new Map() };
 
 // Configuração IA Gemini
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || ");
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "FALTA_CHAVE");
 const aiModel = genAI.getGenerativeModel({ 
     model: "gemini-1.5-flash",
     systemInstruction: "Tu és o @7viDASBotMusic, assistente supremo do JACKSON@7VIDAS. Tua missão é gerir grupos de beatmakers de Moçambique e Angola. Responde de forma profissional, brilhante e educada."
